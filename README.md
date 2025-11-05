@@ -15,18 +15,22 @@
 ### Linear Regression
 
 Equation for Linear Regression model prediction
+
 $$
 \hat y=\theta_0+\theta_1 x_1+\theta_2 x_2+\dots +\theta_n x_n=h_\theta(\vec x)=\vec \theta\cdot\vec x
 $$
 
 #### Mean Squared Error (MSE)
 Equation for Mean Squared Error
+
 $$
 \text{MSE}\, (\vec X,h_\theta)=\frac{1}{m}\sum_{i=1}^m(\vec \theta^T\vec x^{(i)}-y^{(i)})^2
 $$
 
 ### Gradient Descent
+
 ### Regularized Linear Models
+
 ### Logistic Regression
 
 ## Support Vector Machines
