@@ -480,6 +480,507 @@ $$
 
 ### Logistic Regression
 
+
+# Logistic Regression from Scratch - Complete Reference Guide
+
+## Overview
+
+Logistic regression is a supervised learning algorithm for binary classification that predicts probabilities using the sigmoid function. Despite its name, it’s used for classification, not regression.
+
+-----
+
+## Mathematical Foundation
+
+### 1. Sigmoid Function
+
+Converts any real value to a probability between 0 and 1:
+
+```
+σ(z) = 1 / (1 + e^(-z))
+```
+
+where `z = w·x + b` (linear combination of weights, features, and bias)
+
+### 2. Hypothesis Function
+
+```
+h(x) = σ(w·x + b) = 1 / (1 + e^(-(w·x + b)))
+```
+
+### 3. Cost Function (Binary Cross-Entropy Loss)
+
+```
+J(w,b) = -1/m × Σ[y^(i) × log(h(x^(i))) + (1-y^(i)) × log(1-h(x^(i)))]
+```
+
+where:
+
+- m = number of training examples
+- y^(i) = actual label (0 or 1)
+- h(x^(i)) = predicted probability
+
+### 4. Gradient Descent Update Rules
+
+```
+w := w - α × ∂J/∂w
+b := b - α × ∂J/∂b
+```
+
+where α is the learning rate
+
+**Partial derivatives:**
+
+```
+∂J/∂w = 1/m × X^T × (h(X) - y)
+∂J/∂b = 1/m × Σ(h(x^(i)) - y^(i))
+```
+
+-----
+
+## Implementation Steps
+
+### Step 1: Import Dependencies
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.datasets import make_classification
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, confusion_matrix
+```
+
+### Step 2: Define the Sigmoid Function
+
+```python
+def sigmoid(z):
+    """
+    Compute sigmoid activation
+    Args:
+        z: numpy array of any shape
+    Returns:
+        sigmoid(z): same shape as z
+    """
+    return 1 / (1 + np.exp(-z))
+```
+
+### Step 3: Initialize Parameters
+
+```python
+def initialize_parameters(n_features):
+    """
+    Initialize weights and bias to zeros
+    Args:
+        n_features: number of input features
+    Returns:
+        w: weight vector of shape (n_features, 1)
+        b: bias scalar
+    """
+    w = np.zeros((n_features, 1))
+    b = 0
+    return w, b
+```
+
+### Step 4: Compute Cost and Gradients
+
+```python
+def compute_cost_and_gradients(X, y, w, b):
+    """
+    Compute cost function and gradients
+    Args:
+        X: training data of shape (m, n_features)
+        y: labels of shape (m, 1)
+        w: weights of shape (n_features, 1)
+        b: bias scalar
+    Returns:
+        cost: binary cross-entropy loss
+        dw: gradient of cost w.r.t. w
+        db: gradient of cost w.r.t. b
+    """
+    m = X.shape[0]  # number of examples
+    
+    # Forward propagation
+    z = np.dot(X, w) + b
+    A = sigmoid(z)
+    
+    # Compute cost (with clipping to avoid log(0))
+    epsilon = 1e-15
+    A = np.clip(A, epsilon, 1 - epsilon)
+    cost = -1/m * np.sum(y * np.log(A) + (1 - y) * np.log(1 - A))
+    
+    # Backward propagation
+    dw = 1/m * np.dot(X.T, (A - y))
+    db = 1/m * np.sum(A - y)
+    
+    return cost, dw, db
+```
+
+### Step 5: Gradient Descent Optimization
+
+```python
+def gradient_descent(X, y, w, b, learning_rate, num_iterations):
+    """
+    Optimize parameters using gradient descent
+    Args:
+        X: training data of shape (m, n_features)
+        y: labels of shape (m, 1)
+        w: initial weights
+        b: initial bias
+        learning_rate: step size for gradient descent
+        num_iterations: number of optimization iterations
+    Returns:
+        w: optimized weights
+        b: optimized bias
+        costs: list of costs during training
+    """
+    costs = []
+    
+    for i in range(num_iterations):
+        # Compute cost and gradients
+        cost, dw, db = compute_cost_and_gradients(X, y, w, b)
+        
+        # Update parameters
+        w = w - learning_rate * dw
+        b = b - learning_rate * db
+        
+        # Record cost every 100 iterations
+        if i % 100 == 0:
+            costs.append(cost)
+            print(f"Iteration {i}: Cost = {cost:.4f}")
+    
+    return w, b, costs
+```
+
+### Step 6: Make Predictions
+
+```python
+def predict(X, w, b, threshold=0.5):
+    """
+    Predict binary labels
+    Args:
+        X: data of shape (m, n_features)
+        w: trained weights
+        b: trained bias
+        threshold: classification threshold (default 0.5)
+    Returns:
+        predictions: binary predictions (0 or 1)
+    """
+    z = np.dot(X, w) + b
+    A = sigmoid(z)
+    predictions = (A >= threshold).astype(int)
+    return predictions
+```
+
+### Step 7: Complete LogisticRegression Class
+
+```python
+class LogisticRegression:
+    """
+    Logistic Regression classifier from scratch
+    """
+    def __init__(self, learning_rate=0.01, num_iterations=1000):
+        self.learning_rate = learning_rate
+        self.num_iterations = num_iterations
+        self.w = None
+        self.b = None
+        self.costs = []
+    
+    def fit(self, X, y):
+        """
+        Train the logistic regression model
+        Args:
+            X: training data of shape (m, n_features)
+            y: labels of shape (m,) or (m, 1)
+        """
+        # Reshape y if needed
+        if y.ndim == 1:
+            y = y.reshape(-1, 1)
+        
+        # Initialize parameters
+        n_features = X.shape[1]
+        self.w, self.b = initialize_parameters(n_features)
+        
+        # Optimize using gradient descent
+        self.w, self.b, self.costs = gradient_descent(
+            X, y, self.w, self.b, 
+            self.learning_rate, 
+            self.num_iterations
+        )
+    
+    def predict(self, X, threshold=0.5):
+        """
+        Predict binary labels
+        Args:
+            X: data of shape (m, n_features)
+            threshold: classification threshold
+        Returns:
+            predictions: binary predictions
+        """
+        return predict(X, self.w, self.b, threshold)
+    
+    def predict_proba(self, X):
+        """
+        Predict probabilities
+        Args:
+            X: data of shape (m, n_features)
+        Returns:
+            probabilities: predicted probabilities
+        """
+        z = np.dot(X, self.w) + self.b
+        return sigmoid(z)
+    
+    def plot_cost(self):
+        """Plot the cost function over iterations"""
+        plt.figure(figsize=(10, 6))
+        plt.plot(self.costs)
+        plt.xlabel('Iterations (x100)')
+        plt.ylabel('Cost')
+        plt.title('Cost Function over Training')
+        plt.grid(True)
+        plt.show()
+```
+
+-----
+
+## Complete Usage Example
+
+```python
+# Generate synthetic dataset
+X, y = make_classification(
+    n_samples=1000, 
+    n_features=2, 
+    n_redundant=0, 
+    n_informative=2,
+    n_clusters_per_class=1,
+    random_state=42
+)
+
+# Split into train and test sets
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Feature scaling (important for gradient descent!)
+mean = X_train.mean(axis=0)
+std = X_train.std(axis=0)
+X_train_scaled = (X_train - mean) / std
+X_test_scaled = (X_test - mean) / std
+
+# Create and train model
+model = LogisticRegression(learning_rate=0.1, num_iterations=1000)
+model.fit(X_train_scaled, y_train)
+
+# Make predictions
+y_pred_train = model.predict(X_train_scaled)
+y_pred_test = model.predict(X_test_scaled)
+
+# Evaluate
+train_accuracy = accuracy_score(y_train, y_pred_train)
+test_accuracy = accuracy_score(y_test, y_pred_test)
+
+print(f"\nTraining Accuracy: {train_accuracy:.4f}")
+print(f"Test Accuracy: {test_accuracy:.4f}")
+
+# Plot cost
+model.plot_cost()
+
+# Confusion matrix
+cm = confusion_matrix(y_test, y_pred_test)
+print("\nConfusion Matrix:")
+print(cm)
+```
+
+-----
+
+## Key Implementation Tips
+
+### 1. **Feature Scaling**
+
+Always normalize/standardize features before training:
+
+```python
+X_scaled = (X - X.mean(axis=0)) / X.std(axis=0)
+```
+
+This ensures faster convergence and numerical stability.
+
+### 2. **Learning Rate Selection**
+
+- Too high: divergence or oscillation
+- Too low: slow convergence
+- Typical values: 0.001 to 0.1
+- Use learning rate decay for better results
+
+### 3. **Avoiding Numerical Issues**
+
+Clip sigmoid outputs to prevent log(0):
+
+```python
+A = np.clip(A, 1e-15, 1 - 1e-15)
+```
+
+### 4. **Vectorization**
+
+Always use NumPy vectorized operations instead of loops for efficiency:
+
+```python
+# Good: vectorized
+z = np.dot(X, w) + b
+
+# Bad: loop
+z = np.zeros((m, 1))
+for i in range(m):
+    z[i] = np.dot(X[i], w) + b
+```
+
+### 5. **Regularization (L2)**
+
+Add penalty term to prevent overfitting:
+
+```python
+# Modified cost
+cost = -1/m * np.sum(y * np.log(A) + (1-y) * np.log(1-A)) + (lambda_reg/(2*m)) * np.sum(w**2)
+
+# Modified gradient
+dw = 1/m * np.dot(X.T, (A - y)) + (lambda_reg/m) * w
+```
+
+-----
+
+## Common Extensions
+
+### 1. Mini-Batch Gradient Descent
+
+```python
+def mini_batch_gradient_descent(X, y, w, b, learning_rate, 
+                                num_epochs, batch_size):
+    m = X.shape[0]
+    costs = []
+    
+    for epoch in range(num_epochs):
+        # Shuffle data
+        permutation = np.random.permutation(m)
+        X_shuffled = X[permutation]
+        y_shuffled = y[permutation]
+        
+        # Process mini-batches
+        for i in range(0, m, batch_size):
+            X_batch = X_shuffled[i:i+batch_size]
+            y_batch = y_shuffled[i:i+batch_size]
+            
+            cost, dw, db = compute_cost_and_gradients(X_batch, y_batch, w, b)
+            w = w - learning_rate * dw
+            b = b - learning_rate * db
+        
+        if epoch % 10 == 0:
+            full_cost, _, _ = compute_cost_and_gradients(X, y, w, b)
+            costs.append(full_cost)
+    
+    return w, b, costs
+```
+
+### 2. Multi-class Classification (One-vs-All)
+
+```python
+class MulticlassLogisticRegression:
+    def __init__(self, learning_rate=0.01, num_iterations=1000):
+        self.learning_rate = learning_rate
+        self.num_iterations = num_iterations
+        self.classifiers = []
+        self.classes = None
+    
+    def fit(self, X, y):
+        self.classes = np.unique(y)
+        
+        for c in self.classes:
+            # Create binary labels (one-vs-all)
+            y_binary = (y == c).astype(int)
+            
+            # Train binary classifier
+            clf = LogisticRegression(self.learning_rate, self.num_iterations)
+            clf.fit(X, y_binary)
+            self.classifiers.append(clf)
+    
+    def predict(self, X):
+        # Get probabilities from all classifiers
+        probs = np.column_stack([clf.predict_proba(X) for clf in self.classifiers])
+        
+        # Return class with highest probability
+        return self.classes[np.argmax(probs, axis=1)]
+```
+
+-----
+
+## Performance Metrics
+
+```python
+from sklearn.metrics import classification_report, roc_curve, auc
+
+# Detailed classification report
+print(classification_report(y_test, y_pred_test))
+
+# ROC Curve
+y_proba = model.predict_proba(X_test_scaled)
+fpr, tpr, thresholds = roc_curve(y_test, y_proba)
+roc_auc = auc(fpr, tpr)
+
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, label=f'ROC curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], 'k--', label='Random classifier')
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.legend()
+plt.grid(True)
+plt.show()
+```
+
+-----
+
+## Comparison with scikit-learn
+
+```python
+from sklearn.linear_model import LogisticRegression as SklearnLR
+
+# Our implementation
+our_model = LogisticRegression(learning_rate=0.1, num_iterations=1000)
+our_model.fit(X_train_scaled, y_train)
+our_accuracy = accuracy_score(y_test, our_model.predict(X_test_scaled))
+
+# Scikit-learn implementation
+sklearn_model = SklearnLR(max_iter=1000)
+sklearn_model.fit(X_train_scaled, y_train)
+sklearn_accuracy = accuracy_score(y_test, sklearn_model.predict(X_test_scaled))
+
+print(f"Our Implementation: {our_accuracy:.4f}")
+print(f"Scikit-learn: {sklearn_accuracy:.4f}")
+```
+
+-----
+
+## Quick Reference Summary
+
+|Component   |Formula                             |Purpose               |
+|------------|------------------------------------|----------------------|
+|Sigmoid     |σ(z) = 1/(1 + e^(-z))               |Convert to probability|
+|Hypothesis  |h(x) = σ(wx + b)                    |Make prediction       |
+|Cost        |J = -1/m Σ[y log(h) + (1-y)log(1-h)]|Measure error         |
+|Gradient (w)|∂J/∂w = 1/m X^T(h - y)              |Update weights        |
+|Gradient (b)|∂J/∂b = 1/m Σ(h - y)                |Update bias           |
+|Update      |w := w - α∂J/∂w                     |Optimize parameters   |
+
+**Key Hyperparameters:**
+
+- Learning rate (α): 0.001 - 0.1
+- Iterations: 1000 - 10000
+- Regularization (λ): 0.01 - 10
+
+**Prerequisites:**
+
+- Feature scaling/normalization
+- Handling missing values
+- Encoding categorical variables
+
+
 ## Support Vector Machines
 
 ## Decision Trees
