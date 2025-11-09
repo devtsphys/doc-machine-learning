@@ -987,6 +987,358 @@ print(f"Scikit-learn: {sklearn_accuracy:.4f}")
 
 ## Ensemble Learning and Random Forests
 
+# Random Forest Regressor from Scratch - Complete Guide
+
+## Overview
+
+A **Random Forest Regressor** is an ensemble learning method that combines multiple decision trees to make predictions. Each tree is trained on a random subset of data and features, and the final prediction is the average of all tree predictions.
+
+## Key Concepts
+
+### 1. Bootstrap Aggregating (Bagging)
+
+- Sample data with replacement to create multiple training sets
+- Each tree sees a different version of the data
+- Reduces variance and prevents overfitting
+
+### 2. Feature Randomness
+
+- At each split, consider only a random subset of features
+- Typical choice: `sqrt(n_features)` or `n_features/3`
+- Decorrelates trees and improves diversity
+
+### 3. Prediction Aggregation
+
+- For regression: average all tree predictions
+- Reduces prediction variance compared to single tree
+
+## Implementation Steps
+
+### Step 1: Decision Tree Node Structure
+
+```python
+class Node:
+    def __init__(self, feature=None, threshold=None, left=None, right=None, value=None):
+        self.feature = feature      # Feature index to split on
+        self.threshold = threshold  # Threshold value for split
+        self.left = left           # Left child node
+        self.right = right         # Right child node
+        self.value = value         # Leaf node prediction value
+    
+    def is_leaf(self):
+        return self.value is not None
+```
+
+### Step 2: Decision Tree Regressor
+
+```python
+import numpy as np
+
+class DecisionTreeRegressor:
+    def __init__(self, max_depth=10, min_samples_split=2, max_features=None):
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.max_features = max_features
+        self.root = None
+    
+    def fit(self, X, y):
+        """Build decision tree"""
+        self.n_features = X.shape[1]
+        if self.max_features is None:
+            self.max_features = self.n_features
+        self.root = self._grow_tree(X, y)
+    
+    def _grow_tree(self, X, y, depth=0):
+        """Recursively grow the tree"""
+        n_samples, n_features = X.shape
+        
+        # Stopping criteria
+        if depth >= self.max_depth or n_samples < self.min_samples_split:
+            return Node(value=np.mean(y))
+        
+        # Find best split
+        best_feature, best_threshold = self._best_split(X, y)
+        
+        if best_feature is None:
+            return Node(value=np.mean(y))
+        
+        # Split data
+        left_idx = X[:, best_feature] <= best_threshold
+        right_idx = ~left_idx
+        
+        # Grow children
+        left_child = self._grow_tree(X[left_idx], y[left_idx], depth + 1)
+        right_child = self._grow_tree(X[right_idx], y[right_idx], depth + 1)
+        
+        return Node(feature=best_feature, threshold=best_threshold,
+                   left=left_child, right=right_child)
+    
+    def _best_split(self, X, y):
+        """Find the best split using MSE reduction"""
+        best_mse = float('inf')
+        best_feature = None
+        best_threshold = None
+        
+        # Random feature selection
+        feature_indices = np.random.choice(
+            self.n_features, self.max_features, replace=False
+        )
+        
+        for feature in feature_indices:
+            thresholds = np.unique(X[:, feature])
+            
+            for threshold in thresholds:
+                left_idx = X[:, feature] <= threshold
+                right_idx = ~left_idx
+                
+                if np.sum(left_idx) == 0 or np.sum(right_idx) == 0:
+                    continue
+                
+                # Calculate MSE
+                mse = self._calculate_mse(y[left_idx], y[right_idx])
+                
+                if mse < best_mse:
+                    best_mse = mse
+                    best_feature = feature
+                    best_threshold = threshold
+        
+        return best_feature, best_threshold
+    
+    def _calculate_mse(self, left_y, right_y):
+        """Calculate weighted MSE for a split"""
+        n = len(left_y) + len(right_y)
+        left_mse = np.var(left_y) * len(left_y) / n
+        right_mse = np.var(right_y) * len(right_y) / n
+        return left_mse + right_mse
+    
+    def predict(self, X):
+        """Predict for all samples"""
+        return np.array([self._traverse_tree(x, self.root) for x in X])
+    
+    def _traverse_tree(self, x, node):
+        """Traverse tree to make prediction"""
+        if node.is_leaf():
+            return node.value
+        
+        if x[node.feature] <= node.threshold:
+            return self._traverse_tree(x, node.left)
+        return self._traverse_tree(x, node.right)
+```
+
+### Step 3: Random Forest Regressor
+
+```python
+class RandomForestRegressor:
+    def __init__(self, n_estimators=100, max_depth=10, 
+                 min_samples_split=2, max_features='sqrt', bootstrap=True):
+        self.n_estimators = n_estimators
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.max_features = max_features
+        self.bootstrap = bootstrap
+        self.trees = []
+    
+    def fit(self, X, y):
+        """Train the forest"""
+        self.trees = []
+        n_samples, n_features = X.shape
+        
+        # Determine max_features
+        if self.max_features == 'sqrt':
+            max_features = int(np.sqrt(n_features))
+        elif self.max_features == 'log2':
+            max_features = int(np.log2(n_features))
+        elif isinstance(self.max_features, int):
+            max_features = self.max_features
+        else:
+            max_features = n_features
+        
+        for _ in range(self.n_estimators):
+            # Bootstrap sampling
+            if self.bootstrap:
+                indices = np.random.choice(n_samples, n_samples, replace=True)
+                X_sample, y_sample = X[indices], y[indices]
+            else:
+                X_sample, y_sample = X, y
+            
+            # Train tree
+            tree = DecisionTreeRegressor(
+                max_depth=self.max_depth,
+                min_samples_split=self.min_samples_split,
+                max_features=max_features
+            )
+            tree.fit(X_sample, y_sample)
+            self.trees.append(tree)
+    
+    def predict(self, X):
+        """Make predictions by averaging tree predictions"""
+        predictions = np.array([tree.predict(X) for tree in self.trees])
+        return np.mean(predictions, axis=0)
+    
+    def score(self, X, y):
+        """Calculate R² score"""
+        y_pred = self.predict(X)
+        ss_res = np.sum((y - y_pred) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        return 1 - (ss_res / ss_tot)
+```
+
+## Complete Usage Example
+
+```python
+# Generate sample data
+from sklearn.datasets import make_regression
+from sklearn.model_selection import train_test_split
+
+X, y = make_regression(n_samples=1000, n_features=10, noise=10, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+# Train Random Forest
+rf = RandomForestRegressor(
+    n_estimators=100,
+    max_depth=10,
+    min_samples_split=5,
+    max_features='sqrt',
+    bootstrap=True
+)
+
+rf.fit(X_train, y_train)
+
+# Make predictions
+y_pred = rf.predict(X_test)
+
+# Evaluate
+r2_score = rf.score(X_test, y_test)
+mse = np.mean((y_test - y_pred) ** 2)
+print(f"R² Score: {r2_score:.4f}")
+print(f"MSE: {mse:.4f}")
+```
+
+## Hyperparameter Tuning Guide
+
+|Parameter          |Description           |Typical Values     |Effect                                    |
+|-------------------|----------------------|-------------------|------------------------------------------|
+|`n_estimators`     |Number of trees       |100-500            |More trees = better performance but slower|
+|`max_depth`        |Max tree depth        |5-20               |Deeper = more complex, risk overfitting   |
+|`min_samples_split`|Min samples to split  |2-10               |Higher = more regularization              |
+|`max_features`     |Features per split    |‘sqrt’, ‘log2’, int|Lower = more diversity, less correlation  |
+|`bootstrap`        |Use bootstrap sampling|True/False         |True = bagging, reduces variance          |
+
+## Performance Optimization Tips
+
+### 1. Speed Improvements
+
+- Use vectorized operations with NumPy
+- Consider parallel tree training (use `multiprocessing`)
+- Limit tree depth to reduce computation
+- Cache sorted feature values
+
+### 2. Memory Optimization
+
+- Use sparse matrices for sparse data
+- Implement tree pruning
+- Store only essential node information
+
+### 3. Accuracy Improvements
+
+- Increase number of trees (diminishing returns after ~200)
+- Tune `max_features` to balance diversity and accuracy
+- Use cross-validation to find optimal `max_depth`
+- Feature engineering before training
+
+## Common Pitfalls
+
+1. **Not shuffling data**: Always shuffle before training
+1. **Wrong max_features**: Too high = correlated trees, too low = weak trees
+1. **Too few trees**: Start with at least 100 trees
+1. **Ignoring scaling**: While RF handles unscaled features, scaling can help with other preprocessing
+1. **Memory issues with deep trees**: Limit depth for large datasets
+
+## Comparison with Scikit-learn
+
+```python
+from sklearn.ensemble import RandomForestRegressor as SKLearnRF
+
+# Our implementation
+rf_custom = RandomForestRegressor(n_estimators=100, max_depth=10)
+rf_custom.fit(X_train, y_train)
+score_custom = rf_custom.score(X_test, y_test)
+
+# Scikit-learn
+rf_sklearn = SKLearnRF(n_estimators=100, max_depth=10, random_state=42)
+rf_sklearn.fit(X_train, y_train)
+score_sklearn = rf_sklearn.score(X_test, y_test)
+
+print(f"Custom RF R²: {score_custom:.4f}")
+print(f"Sklearn RF R²: {score_sklearn:.4f}")
+```
+
+## Extensions and Advanced Features
+
+### Out-of-Bag (OOB) Score
+
+```python
+def oob_score(self, X, y):
+    """Calculate out-of-bag score for model evaluation"""
+    n_samples = X.shape[0]
+    predictions = np.zeros(n_samples)
+    counts = np.zeros(n_samples)
+    
+    for i, tree in enumerate(self.trees):
+        # Get OOB samples (not in bootstrap sample)
+        oob_indices = # Track which samples weren't used
+        predictions[oob_indices] += tree.predict(X[oob_indices])
+        counts[oob_indices] += 1
+    
+    # Average predictions
+    predictions /= counts
+    return 1 - np.mean((y - predictions) ** 2) / np.var(y)
+```
+
+### Feature Importance
+
+```python
+def feature_importances_(self):
+    """Calculate feature importance based on split reduction"""
+    importances = np.zeros(self.n_features)
+    
+    for tree in self.trees:
+        # Traverse tree and accumulate MSE reductions
+        importances += self._tree_feature_importance(tree)
+    
+    importances /= self.n_estimators
+    return importances / np.sum(importances)
+```
+
+## Mathematical Foundation
+
+**Variance Reduction Formula:**
+
+```
+Var(avg(X₁,...,Xₙ)) = σ²/n + (n-1)/n × ρ × σ²
+```
+
+Where:
+
+- σ² = variance of individual tree
+- ρ = correlation between trees
+- n = number of trees
+
+**Goal:** Minimize ρ through randomness while keeping σ² reasonable
+
+**MSE Split Criterion:**
+
+```
+MSE = (n_left/n) × Var(y_left) + (n_right/n) × Var(y_right)
+```
+
+## References and Further Reading
+
+- Breiman, L. (2001). “Random Forests”. Machine Learning 45(1): 5-32
+- Hastie, T., et al. (2009). “The Elements of Statistical Learning”
+- Scikit-learn documentation on Random Forests
+- Understanding feature importance in Random Forests
+
 # Unsupervised Learning
 
 # Neural Networks and Deep Learning
