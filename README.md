@@ -1341,6 +1341,438 @@ MSE = (n_left/n) × Var(y_left) + (n_right/n) × Var(y_right)
 
 # Unsupervised Learning
 
+## K-Means Clustering
+
+# K-Means Clustering: Complete Reference Guide
+
+## Overview
+
+K-Means is an unsupervised machine learning algorithm that partitions data into K distinct clusters based on feature similarity. Points are assigned to the cluster with the nearest centroid.
+
+## Algorithm Steps
+
+### 1. Initialization
+
+- Choose K (number of clusters)
+- Initialize K centroids randomly from data points or using advanced methods (K-Means++)
+
+### 2. Assignment Step
+
+- For each data point, calculate distance to all centroids
+- Assign point to nearest centroid’s cluster
+
+### 3. Update Step
+
+- Recalculate centroids as the mean of all points in each cluster
+
+### 4. Convergence Check
+
+- Repeat steps 2-3 until centroids stop moving or max iterations reached
+
+## Mathematical Foundation
+
+**Distance Metric (Euclidean):**
+
+```
+d(x, y) = √(Σ(xi - yi)²)
+```
+
+**Centroid Calculation:**
+
+```
+centroid = (1/n) * Σ(points in cluster)
+```
+
+**Objective Function (minimize within-cluster variance):**
+
+```
+J = ΣΣ ||xi - μk||²
+```
+
+## Python Implementation from Scratch
+
+```python
+import numpy as np
+import matplotlib.pyplot as plt
+
+class KMeans:
+    def __init__(self, n_clusters=3, max_iters=100, random_state=None):
+        """
+        Initialize K-Means clustering algorithm
+        
+        Parameters:
+        -----------
+        n_clusters : int
+            Number of clusters to form
+        max_iters : int
+            Maximum number of iterations
+        random_state : int
+            Random seed for reproducibility
+        """
+        self.n_clusters = n_clusters
+        self.max_iters = max_iters
+        self.random_state = random_state
+        self.centroids = None
+        self.labels = None
+        
+    def _initialize_centroids(self, X):
+        """Randomly initialize centroids from data points"""
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+        
+        # Random initialization: select K random points
+        indices = np.random.choice(X.shape[0], self.n_clusters, replace=False)
+        return X[indices]
+    
+    def _initialize_centroids_plusplus(self, X):
+        """
+        K-Means++ initialization for better starting centroids
+        Selects centroids that are far apart from each other
+        """
+        if self.random_state is not None:
+            np.random.seed(self.random_state)
+        
+        centroids = []
+        
+        # Choose first centroid randomly
+        first_idx = np.random.randint(X.shape[0])
+        centroids.append(X[first_idx])
+        
+        # Choose remaining centroids
+        for _ in range(1, self.n_clusters):
+            # Calculate distances from points to nearest centroid
+            distances = np.array([
+                min([np.linalg.norm(x - c)**2 for c in centroids])
+                for x in X
+            ])
+            
+            # Choose next centroid with probability proportional to distance²
+            probabilities = distances / distances.sum()
+            next_idx = np.random.choice(X.shape[0], p=probabilities)
+            centroids.append(X[next_idx])
+        
+        return np.array(centroids)
+    
+    def _compute_distances(self, X, centroids):
+        """
+        Compute Euclidean distance between each point and all centroids
+        
+        Returns:
+        --------
+        distances : array of shape (n_samples, n_clusters)
+        """
+        distances = np.zeros((X.shape[0], self.n_clusters))
+        
+        for i, centroid in enumerate(centroids):
+            # Calculate distance from each point to this centroid
+            distances[:, i] = np.linalg.norm(X - centroid, axis=1)
+        
+        return distances
+    
+    def _assign_clusters(self, X, centroids):
+        """Assign each point to nearest centroid"""
+        distances = self._compute_distances(X, centroids)
+        return np.argmin(distances, axis=1)
+    
+    def _update_centroids(self, X, labels):
+        """Calculate new centroids as mean of assigned points"""
+        centroids = np.zeros((self.n_clusters, X.shape[1]))
+        
+        for k in range(self.n_clusters):
+            # Get all points assigned to cluster k
+            cluster_points = X[labels == k]
+            
+            if len(cluster_points) > 0:
+                # Calculate mean of cluster points
+                centroids[k] = cluster_points.mean(axis=0)
+            else:
+                # Handle empty cluster: reinitialize randomly
+                centroids[k] = X[np.random.choice(X.shape[0])]
+        
+        return centroids
+    
+    def _has_converged(self, old_centroids, new_centroids, tolerance=1e-4):
+        """Check if centroids have stopped moving"""
+        return np.allclose(old_centroids, new_centroids, atol=tolerance)
+    
+    def fit(self, X, use_plusplus=True):
+        """
+        Fit K-Means to data
+        
+        Parameters:
+        -----------
+        X : array of shape (n_samples, n_features)
+            Training data
+        use_plusplus : bool
+            Use K-Means++ initialization if True
+        """
+        # Initialize centroids
+        if use_plusplus:
+            self.centroids = self._initialize_centroids_plusplus(X)
+        else:
+            self.centroids = self._initialize_centroids(X)
+        
+        # Iterate until convergence or max iterations
+        for iteration in range(self.max_iters):
+            # Assignment step
+            self.labels = self._assign_clusters(X, self.centroids)
+            
+            # Store old centroids
+            old_centroids = self.centroids.copy()
+            
+            # Update step
+            self.centroids = self._update_centroids(X, self.labels)
+            
+            # Check convergence
+            if self._has_converged(old_centroids, self.centroids):
+                print(f"Converged after {iteration + 1} iterations")
+                break
+        
+        return self
+    
+    def predict(self, X):
+        """Predict cluster labels for new data"""
+        return self._assign_clusters(X, self.centroids)
+    
+    def fit_predict(self, X, use_plusplus=True):
+        """Fit model and return cluster labels"""
+        self.fit(X, use_plusplus)
+        return self.labels
+    
+    def calculate_inertia(self, X):
+        """
+        Calculate within-cluster sum of squares (WCSS)
+        Lower is better
+        """
+        inertia = 0
+        for k in range(self.n_clusters):
+            cluster_points = X[self.labels == k]
+            if len(cluster_points) > 0:
+                inertia += np.sum((cluster_points - self.centroids[k])**2)
+        return inertia
+
+
+# Example Usage
+def example_usage():
+    """Demonstration of K-Means implementation"""
+    
+    # Generate sample data
+    np.random.seed(42)
+    
+    # Create 3 clusters of data
+    cluster1 = np.random.randn(100, 2) + [2, 2]
+    cluster2 = np.random.randn(100, 2) + [8, 3]
+    cluster3 = np.random.randn(100, 2) + [5, 8]
+    X = np.vstack([cluster1, cluster2, cluster3])
+    
+    # Fit K-Means
+    kmeans = KMeans(n_clusters=3, max_iters=100, random_state=42)
+    labels = kmeans.fit_predict(X)
+    
+    # Calculate inertia
+    inertia = kmeans.calculate_inertia(X)
+    print(f"Inertia (WCSS): {inertia:.2f}")
+    
+    # Visualize results
+    plt.figure(figsize=(10, 6))
+    
+    # Plot data points colored by cluster
+    scatter = plt.scatter(X[:, 0], X[:, 1], c=labels, cmap='viridis', 
+                         alpha=0.6, edgecolors='black', linewidth=0.5)
+    
+    # Plot centroids
+    plt.scatter(kmeans.centroids[:, 0], kmeans.centroids[:, 1], 
+               c='red', marker='X', s=200, edgecolors='black', 
+               linewidth=2, label='Centroids')
+    
+    plt.colorbar(scatter, label='Cluster')
+    plt.title('K-Means Clustering Results')
+    plt.xlabel('Feature 1')
+    plt.ylabel('Feature 2')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
+
+def elbow_method(X, max_k=10):
+    """
+    Use elbow method to find optimal number of clusters
+    Plot inertia vs number of clusters
+    """
+    inertias = []
+    k_range = range(1, max_k + 1)
+    
+    for k in k_range:
+        kmeans = KMeans(n_clusters=k, random_state=42)
+        kmeans.fit(X)
+        inertias.append(kmeans.calculate_inertia(X))
+    
+    # Plot elbow curve
+    plt.figure(figsize=(10, 6))
+    plt.plot(k_range, inertias, 'bo-', linewidth=2, markersize=8)
+    plt.xlabel('Number of Clusters (K)')
+    plt.ylabel('Inertia (WCSS)')
+    plt.title('Elbow Method: Finding Optimal K')
+    plt.grid(True, alpha=0.3)
+    plt.show()
+    
+    return inertias
+
+
+# Run example
+if __name__ == "__main__":
+    example_usage()
+```
+
+## Key Implementation Details
+
+### 1. Distance Calculation
+
+```python
+# Euclidean distance between point and centroid
+distance = np.linalg.norm(point - centroid)
+
+# Vectorized for all points
+distances = np.linalg.norm(X - centroid, axis=1)
+```
+
+### 2. Centroid Updates
+
+```python
+# Mean of all points in cluster k
+centroid_k = X[labels == k].mean(axis=0)
+```
+
+### 3. Convergence Criteria
+
+- Centroids don’t move (within tolerance)
+- Maximum iterations reached
+- No points change clusters
+
+## Algorithm Characteristics
+
+### Advantages
+
+- Simple and intuitive
+- Fast and efficient for large datasets
+- Works well with spherical clusters
+- Scales to high dimensions
+
+### Limitations
+
+- Requires specifying K in advance
+- Sensitive to initial centroid placement
+- Assumes clusters are spherical and similar size
+- Sensitive to outliers
+- Can converge to local minima
+
+## Choosing Optimal K
+
+### 1. Elbow Method
+
+Plot inertia (WCSS) vs K and look for the “elbow” point where improvement diminishes.
+
+### 2. Silhouette Score
+
+```python
+# Measures how similar a point is to its cluster vs other clusters
+# Range: [-1, 1], higher is better
+from sklearn.metrics import silhouette_score
+score = silhouette_score(X, labels)
+```
+
+### 3. Domain Knowledge
+
+Use understanding of the problem to guide K selection.
+
+## Advanced Techniques
+
+### K-Means++ Initialization
+
+- Choose first centroid randomly
+- Select subsequent centroids with probability proportional to distance² from nearest existing centroid
+- Leads to better convergence and final clusters
+
+### Mini-Batch K-Means
+
+- Use random subsets of data for updates
+- Faster for very large datasets
+- Slight decrease in cluster quality
+
+### Handling Empty Clusters
+
+- Reinitialize empty cluster centroids randomly
+- Split largest cluster
+- Remove empty cluster and reduce K
+
+## Common Pitfalls
+
+1. **Not scaling features**: Features with larger ranges dominate distance calculations
+1. **Ignoring outliers**: Outliers can significantly affect centroids
+1. **Wrong K**: Too few or too many clusters
+1. **Poor initialization**: Can lead to suboptimal results
+
+## Preprocessing Best Practices
+
+```python
+# Standardize features to have mean=0, std=1
+from sklearn.preprocessing import StandardScaler
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+
+# Remove outliers before clustering
+# Handle missing values
+# Consider dimensionality reduction (PCA) for high-dimensional data
+```
+
+## Time Complexity
+
+- **Per iteration**: O(n × K × d)
+  - n = number of samples
+  - K = number of clusters
+  - d = number of features
+- **Total**: O(n × K × d × i)
+  - i = number of iterations
+
+## Space Complexity
+
+- O(n × d) for data storage
+- O(K × d) for centroids
+
+## When to Use K-Means
+
+**Good for:**
+
+- Customer segmentation
+- Image compression
+- Document clustering
+- Data preprocessing
+- Anomaly detection
+
+**Not ideal for:**
+
+- Non-spherical clusters
+- Clusters with very different sizes
+- Clusters with different densities
+- Data with many outliers
+
+## Comparison with sklearn
+
+```python
+from sklearn.cluster import KMeans as SKLearnKMeans
+
+# sklearn implementation
+sklearn_kmeans = SKLearnKMeans(n_clusters=3, random_state=42, 
+                               init='k-means++', n_init=10)
+sklearn_labels = sklearn_kmeans.fit_predict(X)
+
+# Our implementation
+our_kmeans = KMeans(n_clusters=3, random_state=42)
+our_labels = our_kmeans.fit_predict(X)
+```
+
+The sklearn implementation includes additional optimizations and features, but the core algorithm remains the same.
+
 # Neural Networks and Deep Learning
 
 # Natural Language Processing
