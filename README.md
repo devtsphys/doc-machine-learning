@@ -1339,6 +1339,1796 @@ MSE = (n_left/n) × Var(y_left) + (n_right/n) × Var(y_right)
 - Scikit-learn documentation on Random Forests
 - Understanding feature importance in Random Forests
 
+## Prophet-Based approaches
+
+# Meta Prophet Time Series Forecasting Reference Guide
+
+## 📋 Table of Contents
+
+1. [Core Concepts](#core-concepts)
+1. [Mathematical Foundation](#mathematical-foundation)
+1. [Implementation from Scratch](#implementation-from-scratch)
+1. [Prophet Library Usage](#prophet-library-usage)
+1. [ML Pipeline Design](#ml-pipeline-design)
+1. [Hyperparameter Tuning](#hyperparameter-tuning)
+1. [Model Evaluation](#model-evaluation)
+1. [Production Deployment](#production-deployment)
+
+-----
+
+## Core Concepts
+
+### What is Prophet?
+
+Prophet is an additive regression model for time series forecasting developed by Meta (Facebook). It’s particularly effective for business time series with:
+
+- Strong seasonal patterns (daily, weekly, yearly)
+- Historical trend changes
+- Missing data and outliers
+- Holiday effects
+
+### When to Use Prophet
+
+✅ **Good for:**
+
+- Business metrics (sales, revenue, engagement)
+- Data with clear seasonality
+- Missing data points
+- Automatic handling of outliers
+- Quick prototyping
+
+❌ **Not ideal for:**
+
+- High-frequency data (sub-daily)
+- Short time series (<2 cycles)
+- Data without clear patterns
+- Real-time streaming data
+
+-----
+
+## Mathematical Foundation
+
+### Decomposition Model
+
+Prophet uses an additive model:
+
+```
+y(t) = g(t) + s(t) + h(t) + εₜ
+```
+
+Where:
+
+- **g(t)**: Trend (piecewise linear or logistic growth)
+- **s(t)**: Seasonality (Fourier series)
+- **h(t)**: Holiday effects
+- **εₜ**: Error term
+
+### 1. Trend Component g(t)
+
+#### Linear Trend (Default)
+
+```
+g(t) = (k + a(t)ᵀδ) · t + (m + a(t)ᵀγ)
+```
+
+- k: growth rate
+- δ: rate adjustments at changepoints
+- m: offset parameter
+- γ: changepoint adjustments
+
+#### Logistic Growth (Saturating)
+
+```
+g(t) = C(t) / (1 + exp(-(k + a(t)ᵀδ)(t - (m + a(t)ᵀγ))))
+```
+
+- C(t): carrying capacity
+
+### 2. Seasonality Component s(t)
+
+Uses Fourier series:
+
+```
+s(t) = Σ(aₙ · cos(2πnt/P) + bₙ · sin(2πnt/P))
+```
+
+- P: period (365.25 for yearly, 7 for weekly)
+- N: number of Fourier terms
+- Default: N=10 for yearly, N=3 for weekly
+
+### 3. Holiday Component h(t)
+
+```
+h(t) = Σ κᵢ · 1(t ∈ Dᵢ)
+```
+
+- κᵢ: holiday effect
+- Dᵢ: set of days for holiday i
+
+-----
+
+## Implementation from Scratch
+
+### Step 1: Data Preparation
+
+```python
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+
+# Prophet requires specific column names: 'ds' (date) and 'y' (value)
+def prepare_data(df, date_col, value_col):
+    """
+    Prepare data for Prophet format
+    
+    Parameters:
+    -----------
+    df : DataFrame
+        Input data
+    date_col : str
+        Name of date column
+    value_col : str
+        Name of value column
+    
+    Returns:
+    --------
+    DataFrame with 'ds' and 'y' columns
+    """
+    df_prophet = pd.DataFrame({
+        'ds': pd.to_datetime(df[date_col]),
+        'y': df[value_col]
+    })
+    
+    # Sort by date
+    df_prophet = df_prophet.sort_values('ds').reset_index(drop=True)
+    
+    # Remove duplicates
+    df_prophet = df_prophet.drop_duplicates(subset='ds')
+    
+    return df_prophet
+
+# Example
+data = {
+    'date': pd.date_range('2020-01-01', periods=365, freq='D'),
+    'sales': np.random.randn(365).cumsum() + 100
+}
+df = pd.DataFrame(data)
+df_prepared = prepare_data(df, 'date', 'sales')
+```
+
+### Step 2: Building Trend Component
+
+```python
+class TrendComponent:
+    """Piecewise linear trend with changepoints"""
+    
+    def __init__(self, n_changepoints=25, changepoint_range=0.8):
+        self.n_changepoints = n_changepoints
+        self.changepoint_range = changepoint_range
+        self.changepoints = None
+        self.k = None  # growth rate
+        self.m = None  # offset
+        self.delta = None  # rate adjustments
+        
+    def fit(self, t, y):
+        """
+        Fit trend to data
+        
+        Parameters:
+        -----------
+        t : array
+            Time values (days since start)
+        y : array
+            Target values
+        """
+        # Set changepoints
+        n = len(t)
+        s = int(n * self.changepoint_range)
+        self.changepoints = np.linspace(0, s, self.n_changepoints + 1)[1:]
+        
+        # Create design matrix
+        A = self._get_changepoint_matrix(t)
+        
+        # Fit using least squares with regularization
+        from sklearn.linear_model import Ridge
+        model = Ridge(alpha=0.1)
+        
+        # Design matrix: [t, changepoint features]
+        X = np.column_stack([t.reshape(-1, 1), A])
+        model.fit(X, y)
+        
+        self.k = model.coef_[0]
+        self.delta = model.coef_[1:]
+        self.m = model.intercept_
+        
+    def _get_changepoint_matrix(self, t):
+        """Create matrix of changepoint indicators"""
+        A = np.zeros((len(t), len(self.changepoints)))
+        for i, cp in enumerate(self.changepoints):
+            A[:, i] = (t >= cp).astype(float) * (t - cp)
+        return A
+    
+    def predict(self, t):
+        """Predict trend values"""
+        A = self._get_changepoint_matrix(t)
+        return self.k * t + self.m + np.dot(A, self.delta)
+```
+
+### Step 3: Building Seasonality Component
+
+```python
+class SeasonalityComponent:
+    """Fourier series seasonality"""
+    
+    def __init__(self, period, fourier_order):
+        """
+        Parameters:
+        -----------
+        period : float
+            Period of seasonality (e.g., 365.25 for yearly, 7 for weekly)
+        fourier_order : int
+            Number of Fourier terms
+        """
+        self.period = period
+        self.fourier_order = fourier_order
+        self.beta = None
+        
+    def _fourier_series(self, t):
+        """Generate Fourier series features"""
+        features = []
+        for n in range(1, self.fourier_order + 1):
+            features.append(np.cos(2 * np.pi * n * t / self.period))
+            features.append(np.sin(2 * np.pi * n * t / self.period))
+        return np.column_stack(features)
+    
+    def fit(self, t, y):
+        """Fit seasonality to data"""
+        from sklearn.linear_model import Ridge
+        X = self._fourier_series(t)
+        model = Ridge(alpha=0.01)
+        model.fit(X, y)
+        self.beta = model.coef_
+        
+    def predict(self, t):
+        """Predict seasonal component"""
+        X = self._fourier_series(t)
+        return np.dot(X, self.beta)
+```
+
+### Step 4: Complete Prophet from Scratch
+
+```python
+class SimpleProphet:
+    """Simplified Prophet implementation"""
+    
+    def __init__(self, 
+                 yearly_seasonality=True,
+                 weekly_seasonality=True,
+                 daily_seasonality=False,
+                 n_changepoints=25):
+        
+        self.yearly_seasonality = yearly_seasonality
+        self.weekly_seasonality = weekly_seasonality
+        self.daily_seasonality = daily_seasonality
+        self.n_changepoints = n_changepoints
+        
+        self.trend_component = None
+        self.seasonality_components = []
+        self.start_date = None
+        
+    def fit(self, df):
+        """
+        Fit model to data
+        
+        Parameters:
+        -----------
+        df : DataFrame
+            Must have 'ds' (datetime) and 'y' (value) columns
+        """
+        # Store start date
+        self.start_date = df['ds'].min()
+        
+        # Convert dates to days since start
+        t = (df['ds'] - self.start_date).dt.total_seconds() / (24 * 3600)
+        t = t.values
+        y = df['y'].values
+        
+        # 1. Fit trend
+        self.trend_component = TrendComponent(n_changepoints=self.n_changepoints)
+        self.trend_component.fit(t, y)
+        
+        # Remove trend
+        y_detrended = y - self.trend_component.predict(t)
+        
+        # 2. Fit seasonality components
+        if self.yearly_seasonality:
+            yearly = SeasonalityComponent(period=365.25, fourier_order=10)
+            yearly.fit(t, y_detrended)
+            self.seasonality_components.append(('yearly', yearly))
+            y_detrended -= yearly.predict(t)
+        
+        if self.weekly_seasonality:
+            weekly = SeasonalityComponent(period=7, fourier_order=3)
+            weekly.fit(t, y_detrended)
+            self.seasonality_components.append(('weekly', weekly))
+        
+    def predict(self, periods):
+        """
+        Make future predictions
+        
+        Parameters:
+        -----------
+        periods : int
+            Number of periods to forecast
+        
+        Returns:
+        --------
+        DataFrame with predictions
+        """
+        # Create future dates
+        last_date = self.start_date + timedelta(days=len(self.trend_component.changepoints))
+        future_dates = pd.date_range(
+            start=last_date + timedelta(days=1),
+            periods=periods,
+            freq='D'
+        )
+        
+        # Convert to days since start
+        t = (future_dates - self.start_date).total_seconds() / (24 * 3600)
+        t = t.values
+        
+        # Predict components
+        yhat = self.trend_component.predict(t)
+        
+        for name, component in self.seasonality_components:
+            yhat += component.predict(t)
+        
+        # Create result dataframe
+        result = pd.DataFrame({
+            'ds': future_dates,
+            'yhat': yhat
+        })
+        
+        return result
+    
+    def plot_components(self, df):
+        """Plot trend and seasonality components"""
+        import matplotlib.pyplot as plt
+        
+        t = (df['ds'] - self.start_date).dt.total_seconds() / (24 * 3600)
+        t = t.values
+        
+        n_plots = 1 + len(self.seasonality_components)
+        fig, axes = plt.subplots(n_plots, 1, figsize=(10, 3*n_plots))
+        
+        # Plot trend
+        axes[0].plot(df['ds'], self.trend_component.predict(t))
+        axes[0].set_title('Trend')
+        axes[0].set_xlabel('Date')
+        
+        # Plot seasonalities
+        for i, (name, component) in enumerate(self.seasonality_components):
+            axes[i+1].plot(df['ds'], component.predict(t))
+            axes[i+1].set_title(f'{name.capitalize()} Seasonality')
+            axes[i+1].set_xlabel('Date')
+        
+        plt.tight_layout()
+        return fig
+```
+
+-----
+
+## Prophet Library Usage
+
+### Installation
+
+```bash
+pip install prophet
+# or for faster stan backend
+pip install prophet[stan]
+```
+
+### Basic Usage
+
+```python
+from prophet import Prophet
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# 1. Prepare data
+df = pd.DataFrame({
+    'ds': pd.date_range('2020-01-01', periods=365*3, freq='D'),
+    'y': np.random.randn(365*3).cumsum() + 100
+})
+
+# 2. Initialize and fit model
+model = Prophet(
+    growth='linear',  # or 'logistic'
+    changepoint_prior_scale=0.05,  # flexibility of trend (0.001-0.5)
+    seasonality_prior_scale=10,     # flexibility of seasonality
+    seasonality_mode='additive',    # or 'multiplicative'
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False
+)
+
+model.fit(df)
+
+# 3. Make predictions
+future = model.make_future_dataframe(periods=365)  # forecast 1 year
+forecast = model.predict(future)
+
+# 4. Visualize
+fig1 = model.plot(forecast)
+fig2 = model.plot_components(forecast)
+plt.show()
+```
+
+### Advanced Features
+
+#### Adding Custom Seasonality
+
+```python
+# Monthly seasonality
+model.add_seasonality(
+    name='monthly',
+    period=30.5,
+    fourier_order=5
+)
+
+# Conditional seasonality (e.g., only on weekends)
+df['on_weekend'] = df['ds'].dt.dayofweek.isin([5, 6]).astype(int)
+
+model.add_seasonality(
+    name='weekend_seasonality',
+    period=7,
+    fourier_order=3,
+    condition_name='on_weekend'
+)
+
+forecast = model.predict(future)
+```
+
+#### Adding Regressors
+
+```python
+# Add external variables
+df['temperature'] = np.random.randn(len(df)) * 10 + 20
+df['marketing_spend'] = np.random.exponential(1000, len(df))
+
+model = Prophet()
+model.add_regressor('temperature')
+model.add_regressor('marketing_spend', mode='multiplicative')
+
+model.fit(df)
+
+# Future dataframe must include regressors
+future = model.make_future_dataframe(periods=30)
+future['temperature'] = np.random.randn(len(future)) * 10 + 20
+future['marketing_spend'] = np.random.exponential(1000, len(future))
+
+forecast = model.predict(future)
+```
+
+#### Handling Holidays
+
+```python
+# Define holidays
+holidays = pd.DataFrame({
+    'holiday': 'christmas',
+    'ds': pd.to_datetime(['2020-12-25', '2021-12-25', '2022-12-25']),
+    'lower_window': -2,  # 2 days before
+    'upper_window': 1,   # 1 day after
+})
+
+# Built-in country holidays
+from prophet.make_holidays import make_holidays_df
+us_holidays = make_holidays_df(
+    year_list=[2020, 2021, 2022],
+    country='US'
+)
+
+model = Prophet(holidays=holidays)
+# or
+model = Prophet(holidays=us_holidays)
+
+model.fit(df)
+```
+
+#### Saturation and Capacity
+
+```python
+# For logistic growth
+df['cap'] = 1000  # maximum capacity
+df['floor'] = 0   # minimum capacity (optional)
+
+model = Prophet(growth='logistic')
+model.fit(df)
+
+future = model.make_future_dataframe(periods=365)
+future['cap'] = 1000
+future['floor'] = 0
+
+forecast = model.predict(future)
+```
+
+-----
+
+## ML Pipeline Design
+
+### Complete Pipeline Architecture
+
+```python
+class ProphetMLPipeline:
+    """Production-ready Prophet ML pipeline"""
+    
+    def __init__(self, config):
+        self.config = config
+        self.model = None
+        self.scaler = None
+        self.metrics = {}
+        
+    def load_data(self, filepath):
+        """Load and validate data"""
+        df = pd.read_csv(filepath)
+        
+        # Validate required columns
+        assert 'ds' in df.columns, "Missing 'ds' column"
+        assert 'y' in df.columns, "Missing 'y' column"
+        
+        # Convert types
+        df['ds'] = pd.to_datetime(df['ds'])
+        df['y'] = pd.to_numeric(df['y'])
+        
+        return df
+    
+    def preprocess(self, df):
+        """Data preprocessing"""
+        df = df.copy()
+        
+        # 1. Handle missing values
+        df = df.dropna(subset=['ds', 'y'])
+        
+        # 2. Remove outliers (optional)
+        if self.config.get('remove_outliers', False):
+            q1 = df['y'].quantile(0.01)
+            q99 = df['y'].quantile(0.99)
+            df = df[(df['y'] >= q1) & (df['y'] <= q99)]
+        
+        # 3. Sort by date
+        df = df.sort_values('ds').reset_index(drop=True)
+        
+        # 4. Handle duplicates
+        df = df.drop_duplicates(subset='ds', keep='first')
+        
+        # 5. Fill gaps (optional)
+        if self.config.get('fill_gaps', False):
+            df = df.set_index('ds').asfreq('D').reset_index()
+            df['y'] = df['y'].interpolate(method='linear')
+        
+        return df
+    
+    def feature_engineering(self, df):
+        """Create additional features"""
+        df = df.copy()
+        
+        # Time-based features
+        df['day_of_week'] = df['ds'].dt.dayofweek
+        df['month'] = df['ds'].dt.month
+        df['quarter'] = df['ds'].dt.quarter
+        df['is_weekend'] = (df['ds'].dt.dayofweek >= 5).astype(int)
+        
+        # Lag features
+        for lag in self.config.get('lags', []):
+            df[f'lag_{lag}'] = df['y'].shift(lag)
+        
+        # Rolling statistics
+        for window in self.config.get('rolling_windows', []):
+            df[f'rolling_mean_{window}'] = df['y'].rolling(window).mean()
+            df[f'rolling_std_{window}'] = df['y'].rolling(window).std()
+        
+        return df
+    
+    def train_test_split(self, df, test_size=0.2):
+        """Time-based train/test split"""
+        split_idx = int(len(df) * (1 - test_size))
+        train = df.iloc[:split_idx].copy()
+        test = df.iloc[split_idx:].copy()
+        return train, test
+    
+    def build_model(self):
+        """Initialize Prophet model with config"""
+        model_params = {
+            'growth': self.config.get('growth', 'linear'),
+            'changepoint_prior_scale': self.config.get('changepoint_prior_scale', 0.05),
+            'seasonality_prior_scale': self.config.get('seasonality_prior_scale', 10),
+            'seasonality_mode': self.config.get('seasonality_mode', 'additive'),
+            'yearly_seasonality': self.config.get('yearly_seasonality', True),
+            'weekly_seasonality': self.config.get('weekly_seasonality', True),
+            'daily_seasonality': self.config.get('daily_seasonality', False),
+            'interval_width': self.config.get('interval_width', 0.80)
+        }
+        
+        self.model = Prophet(**model_params)
+        
+        # Add custom seasonalities
+        for seasonality in self.config.get('custom_seasonalities', []):
+            self.model.add_seasonality(**seasonality)
+        
+        # Add regressors
+        for regressor in self.config.get('regressors', []):
+            self.model.add_regressor(regressor)
+        
+        return self.model
+    
+    def train(self, train_df):
+        """Train the model"""
+        print("Training Prophet model...")
+        self.model.fit(train_df)
+        print("Training complete!")
+        
+    def predict(self, periods=None, future_df=None):
+        """Make predictions"""
+        if future_df is None:
+            future_df = self.model.make_future_dataframe(periods=periods)
+        
+        forecast = self.model.predict(future_df)
+        return forecast
+    
+    def evaluate(self, test_df):
+        """Evaluate model performance"""
+        from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+        
+        # Predict on test set
+        forecast = self.model.predict(test_df[['ds']])
+        
+        y_true = test_df['y'].values
+        y_pred = forecast['yhat'].values
+        
+        # Calculate metrics
+        self.metrics = {
+            'MAE': mean_absolute_error(y_true, y_pred),
+            'RMSE': np.sqrt(mean_squared_error(y_true, y_pred)),
+            'MAPE': np.mean(np.abs((y_true - y_pred) / y_true)) * 100,
+            'R2': r2_score(y_true, y_pred)
+        }
+        
+        return self.metrics
+    
+    def cross_validate_prophet(self, df, horizon='30 days', initial='730 days', period='180 days'):
+        """Time series cross-validation"""
+        from prophet.diagnostics import cross_validation, performance_metrics
+        
+        df_cv = cross_validation(
+            self.model,
+            initial=initial,
+            period=period,
+            horizon=horizon
+        )
+        
+        metrics = performance_metrics(df_cv)
+        return df_cv, metrics
+    
+    def save_model(self, filepath):
+        """Save trained model"""
+        import pickle
+        with open(filepath, 'wb') as f:
+            pickle.dump(self.model, f)
+    
+    def load_model(self, filepath):
+        """Load trained model"""
+        import pickle
+        with open(filepath, 'rb') as f:
+            self.model = pickle.load(f)
+
+# Example usage
+config = {
+    'growth': 'linear',
+    'changepoint_prior_scale': 0.05,
+    'seasonality_prior_scale': 10,
+    'yearly_seasonality': True,
+    'weekly_seasonality': True,
+    'remove_outliers': True,
+    'fill_gaps': True
+}
+
+pipeline = ProphetMLPipeline(config)
+df = pipeline.load_data('data.csv')
+df = pipeline.preprocess(df)
+train, test = pipeline.train_test_split(df)
+
+pipeline.build_model()
+pipeline.train(train)
+metrics = pipeline.evaluate(test)
+print(metrics)
+```
+
+-----
+
+## Hyperparameter Tuning
+
+### Grid Search for Prophet
+
+```python
+from itertools import product
+import pandas as pd
+
+def prophet_grid_search(df, param_grid, metric='mape'):
+    """
+    Perform grid search for Prophet hyperparameters
+    
+    Parameters:
+    -----------
+    df : DataFrame
+        Training data
+    param_grid : dict
+        Dictionary of parameters to search
+    metric : str
+        Metric to optimize ('mape', 'rmse', 'mae')
+    
+    Returns:
+    --------
+    best_params : dict
+        Best parameter combination
+    results : DataFrame
+        All results
+    """
+    from prophet.diagnostics import cross_validation, performance_metrics
+    
+    # Generate all combinations
+    keys = param_grid.keys()
+    values = param_grid.values()
+    combinations = [dict(zip(keys, v)) for v in product(*values)]
+    
+    results = []
+    
+    for i, params in enumerate(combinations):
+        print(f"Testing combination {i+1}/{len(combinations)}: {params}")
+        
+        try:
+            # Build model
+            model = Prophet(**params)
+            model.fit(df)
+            
+            # Cross-validate
+            df_cv = cross_validation(
+                model,
+                initial='730 days',
+                period='180 days',
+                horizon='30 days'
+            )
+            
+            # Calculate metrics
+            df_metrics = performance_metrics(df_cv)
+            
+            # Store results
+            result = params.copy()
+            result['mape'] = df_metrics['mape'].mean()
+            result['rmse'] = df_metrics['rmse'].mean()
+            result['mae'] = df_metrics['mae'].mean()
+            results.append(result)
+            
+        except Exception as e:
+            print(f"Error with params {params}: {e}")
+            continue
+    
+    # Convert to DataFrame
+    results_df = pd.DataFrame(results)
+    
+    # Find best parameters
+    best_idx = results_df[metric].idxmin()
+    best_params = results_df.loc[best_idx].to_dict()
+    
+    return best_params, results_df
+
+# Example usage
+param_grid = {
+    'changepoint_prior_scale': [0.001, 0.01, 0.05, 0.1, 0.5],
+    'seasonality_prior_scale': [0.01, 0.1, 1.0, 10.0],
+    'seasonality_mode': ['additive', 'multiplicative']
+}
+
+best_params, results = prophet_grid_search(df, param_grid)
+print("Best parameters:", best_params)
+```
+
+### Bayesian Optimization
+
+```python
+from hyperopt import hp, fmin, tpe, Trials, STATUS_OK
+
+def prophet_objective(params):
+    """Objective function for hyperopt"""
+    
+    # Build model with params
+    model = Prophet(
+        changepoint_prior_scale=params['changepoint_prior_scale'],
+        seasonality_prior_scale=params['seasonality_prior_scale'],
+        seasonality_mode=params['seasonality_mode']
+    )
+    
+    model.fit(train_df)
+    
+    # Evaluate
+    forecast = model.predict(test_df[['ds']])
+    mape = np.mean(np.abs((test_df['y'] - forecast['yhat']) / test_df['y'])) * 100
+    
+    return {'loss': mape, 'status': STATUS_OK}
+
+# Define search space
+space = {
+    'changepoint_prior_scale': hp.loguniform('changepoint_prior_scale', np.log(0.001), np.log(0.5)),
+    'seasonality_prior_scale': hp.loguniform('seasonality_prior_scale', np.log(0.01), np.log(10)),
+    'seasonality_mode': hp.choice('seasonality_mode', ['additive', 'multiplicative'])
+}
+
+# Run optimization
+trials = Trials()
+best = fmin(
+    fn=prophet_objective,
+    space=space,
+    algo=tpe.suggest,
+    max_evals=50,
+    trials=trials
+)
+
+print("Best parameters:", best)
+```
+
+-----
+
+## Model Evaluation
+
+### Comprehensive Evaluation Metrics
+
+```python
+def evaluate_forecast(y_true, y_pred, y_pred_lower=None, y_pred_upper=None):
+    """
+    Comprehensive forecast evaluation
+    
+    Returns dict with multiple metrics
+    """
+    from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+    
+    metrics = {}
+    
+    # Basic metrics
+    metrics['MAE'] = mean_absolute_error(y_true, y_pred)
+    metrics['RMSE'] = np.sqrt(mean_squared_error(y_true, y_pred))
+    metrics['R2'] = r2_score(y_true, y_pred)
+    
+    # Percentage errors
+    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    metrics['MAPE'] = mape
+    
+    # Symmetric MAPE (better for values near zero)
+    smape = np.mean(2 * np.abs(y_true - y_pred) / (np.abs(y_true) + np.abs(y_pred))) * 100
+    metrics['SMAPE'] = smape
+    
+    # Weighted metrics
+    metrics['WMAPE'] = np.sum(np.abs(y_true - y_pred)) / np.sum(np.abs(y_true)) * 100
+    
+    # Direction accuracy
+    if len(y_true) > 1:
+        y_true_diff = np.diff(y_true)
+        y_pred_diff = np.diff(y_pred)
+        direction_accuracy = np.mean((y_true_diff * y_pred_diff) > 0) * 100
+        metrics['Direction_Accuracy'] = direction_accuracy
+    
+    # Coverage (if prediction intervals provided)
+    if y_pred_lower is not None and y_pred_upper is not None:
+        coverage = np.mean((y_true >= y_pred_lower) & (y_true <= y_pred_upper)) * 100
+        metrics['Coverage'] = coverage
+    
+    return metrics
+
+# Usage
+forecast = model.predict(test_df[['ds']])
+metrics = evaluate_forecast(
+    y_true=test_df['y'].values,
+    y_pred=forecast['yhat'].values,
+    y_pred_lower=forecast['yhat_lower'].values,
+    y_pred_upper=forecast['yhat_upper'].values
+)
+
+for metric, value in metrics.items():
+    print(f"{metric}: {value:.2f}")
+```
+
+### Visualization Functions
+
+```python
+def plot_forecast_evaluation(df_train, df_test, forecast, model_name='Prophet'):
+    """Comprehensive forecast visualization"""
+    import matplotlib.pyplot as plt
+    
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # 1. Actual vs Predicted
+    ax = axes[0, 0]
+    ax.plot(df_train['ds'], df_train['y'], 'k.', label='Training', alpha=0.5)
+    ax.plot(df_test['ds'], df_test['y'], 'b.', label='Actual Test', markersize=8)
+    ax.plot(forecast['ds'], forecast['yhat'], 'r-', label='Forecast', linewidth=2)
+    ax.fill_between(forecast['ds'], 
+                     forecast['yhat_lower'], 
+                     forecast['yhat_upper'],
+                     alpha=0.3, color='red', label='80% Interval')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Value')
+    ax.set_title(f'{model_name}: Actual vs Predicted')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # 2. Residuals over time
+    ax = axes[0, 1]
+    residuals = df_test['y'].values - forecast['yhat'].values
+    ax.scatter(forecast['ds'], residuals, alpha=0.6)
+    ax.axhline(y=0, color='r', linestyle='--')
+    ax.set_xlabel('Date')
+    ax.set_ylabel('Residuals')
+    ax.set_title('Residuals Over Time')
+    ax.grid(True, alpha=0.3)
+    
+    # 3. Residuals distribution
+    ax = axes[1, 0]
+    ax.hist(residuals, bins=30, edgecolor='black', alpha=0.7)
+    ax.axvline(x=0, color='r', linestyle='--', linewidth=2)
+    ax.set_xlabel('Residuals')
+    ax.set_ylabel('Frequency')
+    ax.set_title('Residuals Distribution')
+    ax.grid(True, alpha=0.3)
+    
+    # 4. Actual vs Predicted scatter
+    ax = axes[1, 1]
+    ax.scatter(df_test['y'].values, forecast['yhat'].values, alpha=0.6)
+    min_val = min(df_test['y'].min(), forecast['yhat'].min())
+    max_val = max(df_test['y'].max(), forecast['yhat'].max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2)
+    ax.set_xlabel('Actual Values')
+    ax.set_ylabel('Predicted Values')
+    ax.set_title('Actual vs Predicted Scatter')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    return fig
+
+# Usage
+fig = plot_forecast_evaluation(train_df, test_df, forecast)
+
+def plot_diagnostics(model, df):
+    """Plot Prophet diagnostic plots"""
+    import matplotlib.pyplot as plt
+    from prophet.plot import plot_cross_validation_metric
+    from prophet.diagnostics import cross_validation, performance_metrics
+    
+    # Cross-validation
+    df_cv = cross_validation(model, initial='730 days', period='180 days', horizon='30 days')
+    df_p = performance_metrics(df_cv)
+    
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    
+    # Plot metrics over horizon
+    metrics = ['mape', 'rmse', 'mae', 'coverage']
+    for idx, metric in enumerate(metrics):
+        ax = axes[idx // 2, idx % 2]
+        plot_cross_validation_metric(df_cv, metric=metric, ax=ax)
+        ax.set_title(f'{metric.upper()} over Forecast Horizon')
+    
+    plt.tight_layout()
+    return fig, df_cv, df_p
+```
+
+-----
+
+## Production Deployment
+
+### Model Serialization and Versioning
+
+```python
+import pickle
+import json
+from datetime import datetime
+import hashlib
+
+class ModelRegistry:
+    """Manage model versions and metadata"""
+    
+    def __init__(self, registry_path='models/'):
+        self.registry_path = registry_path
+        import os
+        os.makedirs(registry_path, exist_ok=True)
+        
+    def save_model(self, model, metadata, version=None):
+        """
+        Save model with metadata
+        
+        Parameters:
+        -----------
+        model : Prophet
+            Trained model
+        metadata : dict
+            Model metadata (metrics, params, etc.)
+        version : str
+            Model version (auto-generated if None)
+        """
+        if version is None:
+            version = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Save model
+        model_path = f"{self.registry_path}/model_{version}.pkl"
+        with open(model_path, 'wb') as f:
+            pickle.dump(model, f)
+        
+        # Calculate model hash
+        with open(model_path, 'rb') as f:
+            model_hash = hashlib.md5(f.read()).hexdigest()
+        
+        # Save metadata
+        metadata['version'] = version
+        metadata['timestamp'] = datetime.now().isoformat()
+        metadata['model_hash'] = model_hash
+        metadata['model_path'] = model_path
+        
+        metadata_path = f"{self.registry_path}/metadata_{version}.json"
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2, default=str)
+        
+        print(f"Model saved: {model_path}")
+        print(f"Metadata saved: {metadata_path}")
+        
+        return version
+    
+    def load_model(self, version):
+        """Load model by version"""
+        model_path = f"{self.registry_path}/model_{version}.pkl"
+        metadata_path = f"{self.registry_path}/metadata_{version}.json"
+        
+        with open(model_path, 'rb') as f:
+            model = pickle.load(f)
+        
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        
+        return model, metadata
+    
+    def list_models(self):
+        """List all saved models"""
+        import os
+        import glob
+        
+        metadata_files = glob.glob(f"{self.registry_path}/metadata_*.json")
+        models = []
+        
+        for mf in metadata_files:
+            with open(mf, 'r') as f:
+                metadata = json.load(f)
+                models.append(metadata)
+        
+        return sorted(models, key=lambda x: x['timestamp'], reverse=True)
+
+# Usage
+registry = ModelRegistry()
+
+# Save model
+metadata = {
+    'model_type': 'Prophet',
+    'metrics': {'MAPE': 5.2, 'RMSE': 10.5},
+    'params': {'changepoint_prior_scale': 0.05},
+    'training_samples': len(train_df),
+    'features': ['ds', 'y']
+}
+
+version = registry.save_model(model, metadata)
+
+# Load model
+loaded_model, loaded_metadata = registry.load_model(version)
+
+# List all models
+all_models = registry.list_models()
+print(f"Found {len(all_models)} models")
+```
+
+### REST API with Flask
+
+```python
+from flask import Flask, request, jsonify
+import pandas as pd
+from datetime import datetime
+import pickle
+
+app = Flask(__name__)
+
+# Load model at startup
+with open('models/prophet_model.pkl', 'rb') as f:
+    model = pickle.load(f)
+
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now().isoformat()})
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    """
+    Prediction endpoint
+    
+    Request body:
+    {
+        "periods": 30,
+        "freq": "D"
+    }
+    
+    or
+    
+    {
+        "dates": ["2024-01-01", "2024-01-02", ...]
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        # Create future dataframe
+        if 'dates' in data:
+            future = pd.DataFrame({'ds': pd.to_datetime(data['dates'])})
+        else:
+            periods = data.get('periods', 30)
+            freq = data.get('freq', 'D')
+            future = model.make_future_dataframe(periods=periods, freq=freq)
+        
+        # Make prediction
+        forecast = model.predict(future)
+        
+        # Format response
+        result = {
+            'forecast': forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_dict(orient='records'),
+            'metadata': {
+                'model_version': '1.0',
+                'prediction_timestamp': datetime.now().isoformat(),
+                'num_predictions': len(forecast)
+            }
+        }
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/predict/batch', methods=['POST'])
+def predict_batch():
+    """
+    Batch prediction endpoint
+    
+    Request body:
+    {
+        "data": [
+            {"ds": "2024-01-01"},
+            {"ds": "2024-01-02"},
+            ...
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        df = pd.DataFrame(data['data'])
+        df['ds'] = pd.to_datetime(df['ds'])
+        
+        forecast = model.predict(df)
+        
+        result = {
+            'forecast': forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].to_dict(orient='records')
+        }
+        
+        return jsonify(result)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/components', methods=['POST'])
+def get_components():
+    """
+    Get forecast components (trend, seasonality, etc.)
+    """
+    try:
+        data = request.get_json()
+        periods = data.get('periods', 30)
+        
+        future = model.make_future_dataframe(periods=periods)
+        forecast = model.predict(future)
+        
+        components = {
+            'trend': forecast[['ds', 'trend']].to_dict(orient='records'),
+            'yearly': forecast[['ds', 'yearly']].to_dict(orient='records') if 'yearly' in forecast.columns else None,
+            'weekly': forecast[['ds', 'weekly']].to_dict(orient='records') if 'weekly' in forecast.columns else None,
+        }
+        
+        return jsonify(components)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)
+```
+
+### Docker Deployment
+
+```dockerfile
+# Dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY . .
+
+# Expose port
+EXPOSE 5000
+
+# Run application
+CMD ["python", "app.py"]
+```
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  prophet-api:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./models:/app/models
+    environment:
+      - MODEL_PATH=/app/models/prophet_model.pkl
+    restart: unless-stopped
+```
+
+### Monitoring and Logging
+
+```python
+import logging
+from functools import wraps
+import time
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('prophet_api.log'),
+        logging.StreamHandler()
+    ]
+)
+
+logger = logging.getLogger(__name__)
+
+def log_prediction(func):
+    """Decorator to log predictions"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        
+        try:
+            result = func(*args, **kwargs)
+            
+            duration = time.time() - start_time
+            logger.info(f"Prediction successful - Duration: {duration:.3f}s")
+            
+            return result
+        
+        except Exception as e:
+            logger.error(f"Prediction failed: {str(e)}", exc_info=True)
+            raise
+    
+    return wrapper
+
+class PredictionMonitor:
+    """Monitor prediction performance"""
+    
+    def __init__(self):
+        self.predictions = []
+        
+    def record(self, y_true, y_pred, timestamp=None):
+        """Record a prediction for monitoring"""
+        if timestamp is None:
+            timestamp = datetime.now()
+        
+        error = abs(y_true - y_pred)
+        pct_error = (error / y_true * 100) if y_true != 0 else 0
+        
+        self.predictions.append({
+            'timestamp': timestamp,
+            'y_true': y_true,
+            'y_pred': y_pred,
+            'error': error,
+            'pct_error': pct_error
+        })
+    
+    def get_stats(self, window='24h'):
+        """Get statistics for recent predictions"""
+        if not self.predictions:
+            return {}
+        
+        df = pd.DataFrame(self.predictions)
+        
+        # Filter by time window
+        if window:
+            cutoff = datetime.now() - pd.Timedelta(window)
+            df = df[df['timestamp'] > cutoff]
+        
+        if len(df) == 0:
+            return {}
+        
+        return {
+            'count': len(df),
+            'mean_error': df['error'].mean(),
+            'mean_pct_error': df['pct_error'].mean(),
+            'max_error': df['error'].max(),
+            'p95_error': df['error'].quantile(0.95)
+        }
+    
+    def check_drift(self, threshold=10.0):
+        """Check if model performance is drifting"""
+        stats = self.get_stats(window='24h')
+        
+        if not stats:
+            return False
+        
+        if stats['mean_pct_error'] > threshold:
+            logger.warning(f"Model drift detected! Mean error: {stats['mean_pct_error']:.2f}%")
+            return True
+        
+        return False
+
+# Usage
+monitor = PredictionMonitor()
+
+@log_prediction
+def make_prediction(data):
+    forecast = model.predict(data)
+    return forecast
+
+# Record actual vs predicted for monitoring
+monitor.record(y_true=100, y_pred=95)
+stats = monitor.get_stats()
+print(stats)
+```
+
+-----
+
+## Best Practices & Tips
+
+### 1. Data Quality Checklist
+
+```python
+def validate_prophet_data(df):
+    """
+    Validate data before training
+    
+    Returns: dict with validation results
+    """
+    validation = {
+        'passed': True,
+        'warnings': [],
+        'errors': []
+    }
+    
+    # Check required columns
+    if 'ds' not in df.columns:
+        validation['errors'].append("Missing 'ds' column")
+        validation['passed'] = False
+    
+    if 'y' not in df.columns:
+        validation['errors'].append("Missing 'y' column")
+        validation['passed'] = False
+    
+    if not validation['passed']:
+        return validation
+    
+    # Check data types
+    if not pd.api.types.is_datetime64_any_dtype(df['ds']):
+        validation['errors'].append("'ds' must be datetime type")
+        validation['passed'] = False
+    
+    if not pd.api.types.is_numeric_dtype(df['y']):
+        validation['errors'].append("'y' must be numeric type")
+        validation['passed'] = False
+    
+    # Check for missing values
+    missing_ds = df['ds'].isna().sum()
+    missing_y = df['y'].isna().sum()
+    
+    if missing_ds > 0:
+        validation['warnings'].append(f"{missing_ds} missing dates")
+    
+    if missing_y > 0:
+        validation['warnings'].append(f"{missing_y} missing values")
+    
+    # Check for duplicates
+    duplicates = df['ds'].duplicated().sum()
+    if duplicates > 0:
+        validation['warnings'].append(f"{duplicates} duplicate dates")
+    
+    # Check data length
+    if len(df) < 20:
+        validation['warnings'].append(f"Only {len(df)} data points (recommend 100+)")
+    
+    # Check for negative values
+    if (df['y'] < 0).any():
+        validation['warnings'].append("Negative values present (consider floor=0)")
+    
+    # Check for outliers
+    q1 = df['y'].quantile(0.25)
+    q3 = df['y'].quantile(0.75)
+    iqr = q3 - q1
+    outliers = ((df['y'] < (q1 - 3 * iqr)) | (df['y'] > (q3 + 3 * iqr))).sum()
+    
+    if outliers > 0:
+        validation['warnings'].append(f"{outliers} potential outliers detected")
+    
+    return validation
+
+# Usage
+validation = validate_prophet_data(df)
+if not validation['passed']:
+    print("Validation failed:", validation['errors'])
+else:
+    print("Validation passed")
+    if validation['warnings']:
+        print("Warnings:", validation['warnings'])
+```
+
+### 2. Performance Optimization
+
+```python
+# Use cmdstanpy for faster inference (5-10x speedup)
+# pip install prophet[stan]
+
+# Parallel cross-validation
+from prophet.diagnostics import cross_validation
+
+df_cv = cross_validation(
+    model,
+    initial='730 days',
+    period='180 days',
+    horizon='30 days',
+    parallel='processes'  # Use multiprocessing
+)
+
+# Reduce MCMC samples for faster training
+model = Prophet(
+    mcmc_samples=100,  # Default is 0 (use MAP)
+    uncertainty_samples=100  # Reduce from default 1000
+)
+
+# Disable unnecessary seasonalities
+model = Prophet(
+    daily_seasonality=False,
+    weekly_seasonality=False,  # If not needed
+    yearly_seasonality='auto'  # Auto-detect
+)
+```
+
+### 3. Common Pitfalls and Solutions
+
+```python
+"""
+PITFALL 1: Not enough data
+Solution: Need at least 2 complete seasonal cycles
+"""
+# For monthly data with yearly seasonality: 24+ months
+# For daily data with weekly seasonality: 14+ days
+
+"""
+PITFALL 2: Irregular time intervals
+Solution: Standardize to regular frequency
+"""
+# Resample to daily frequency
+df = df.set_index('ds').resample('D').asfreq()
+df['y'] = df['y'].interpolate()
+
+"""
+PITFALL 3: Not handling capacity for logistic growth
+Solution: Always set cap when using logistic growth
+"""
+df['cap'] = df['y'].max() * 1.5  # Set capacity
+model = Prophet(growth='logistic')
+
+"""
+PITFALL 4: Ignoring domain knowledge
+Solution: Add custom seasonalities and regressors
+"""
+# Add payday effect
+df['is_payday'] = df['ds'].dt.day.isin([1, 15]).astype(int)
+model.add_regressor('is_payday')
+
+"""
+PITFALL 5: Over-fitting with too many changepoints
+Solution: Use regularization
+"""
+model = Prophet(
+    changepoint_prior_scale=0.05,  # Lower = less flexible
+    n_changepoints=25  # Fewer changepoints
+)
+
+"""
+PITFALL 6: Not validating on hold-out set
+Solution: Always do time-series split validation
+"""
+# Never shuffle! Use time-based split
+split_date = df['ds'].max() - pd.Timedelta(days=90)
+train = df[df['ds'] <= split_date]
+test = df[df['ds'] > split_date]
+```
+
+### 4. Interpretability and Explainability
+
+```python
+def explain_forecast(model, forecast, date_to_explain):
+    """
+    Break down forecast into interpretable components
+    
+    Parameters:
+    -----------
+    model : Prophet
+        Fitted model
+    forecast : DataFrame
+        Forecast output
+    date_to_explain : datetime
+        Date to explain
+    
+    Returns:
+    --------
+    dict with component contributions
+    """
+    # Get forecast for specific date
+    row = forecast[forecast['ds'] == date_to_explain].iloc[0]
+    
+    explanation = {
+        'date': date_to_explain,
+        'forecast': row['yhat'],
+        'components': {}
+    }
+    
+    # Trend
+    if 'trend' in row:
+        explanation['components']['trend'] = row['trend']
+    
+    # Seasonalities
+    for col in forecast.columns:
+        if col.endswith('_seasonal') or col in ['yearly', 'weekly', 'daily']:
+            explanation['components'][col] = row[col]
+    
+    # Holidays
+    if 'holidays' in row:
+        explanation['components']['holidays'] = row['holidays']
+    
+    # Additional regressors
+    for col in forecast.columns:
+        if col.startswith('extra_regressors'):
+            explanation['components'][col] = row[col]
+    
+    # Calculate percentages
+    total = sum(explanation['components'].values())
+    if total != 0:
+        explanation['percentages'] = {
+            k: (v / total * 100) for k, v in explanation['components'].items()
+        }
+    
+    return explanation
+
+# Usage
+from datetime import datetime
+explanation = explain_forecast(
+    model, 
+    forecast, 
+    datetime(2024, 12, 25)
+)
+
+print(f"Forecast for {explanation['date']}: {explanation['forecast']:.2f}")
+print("\nComponent contributions:")
+for component, value in explanation['components'].items():
+    pct = explanation['percentages'][component]
+    print(f"  {component}: {value:.2f} ({pct:.1f}%)")
+```
+
+### 5. A/B Testing Models
+
+```python
+def compare_models(models_dict, test_df):
+    """
+    Compare multiple Prophet models
+    
+    Parameters:
+    -----------
+    models_dict : dict
+        {'model_name': model_object}
+    test_df : DataFrame
+        Test data
+    
+    Returns:
+    --------
+    DataFrame with comparison results
+    """
+    results = []
+    
+    for name, model in models_dict.items():
+        forecast = model.predict(test_df[['ds']])
+        
+        metrics = evaluate_forecast(
+            test_df['y'].values,
+            forecast['yhat'].values,
+            forecast['yhat_lower'].values,
+            forecast['yhat_upper'].values
+        )
+        
+        metrics['model'] = name
+        results.append(metrics)
+    
+    results_df = pd.DataFrame(results)
+    results_df = results_df.sort_values('MAPE')
+    
+    return results_df
+
+# Usage
+models = {
+    'baseline': Prophet(),
+    'with_regressors': Prophet().add_regressor('temperature'),
+    'multiplicative': Prophet(seasonality_mode='multiplicative'),
+    'tuned': Prophet(changepoint_prior_scale=0.01)
+}
+
+# Train all models
+for name, model in models.items():
+    model.fit(train_df)
+
+# Compare
+comparison = compare_models(models, test_df)
+print(comparison)
+```
+
+-----
+
+## Quick Reference Commands
+
+### Installation
+
+```bash
+# Standard installation
+pip install prophet
+
+# With Stan backend (faster)
+pip install prophet[stan]
+
+# Development version
+pip install git+https://github.com/facebook/prophet.git
+```
+
+### Essential Imports
+
+```python
+from prophet import Prophet
+from prophet.plot import plot_plotly, plot_components_plotly
+from prophet.diagnostics import cross_validation, performance_metrics
+from prophet.plot import plot_cross_validation_metric
+import pandas as pd
+import numpy as np
+```
+
+### Minimal Working Example
+
+```python
+# 1. Prepare data
+df = pd.DataFrame({
+    'ds': pd.date_range('2020-01-01', periods=365*2, freq='D'),
+    'y': np.random.randn(365*2).cumsum() + 100
+})
+
+# 2. Train
+m = Prophet()
+m.fit(df)
+
+# 3. Predict
+future = m.make_future_dataframe(periods=365)
+forecast = m.predict(future)
+
+# 4. Plot
+fig = m.plot(forecast)
+fig_comp = m.plot_components(forecast)
+```
+
+### Common Patterns
+
+```python
+# Custom seasonality
+m.add_seasonality(name='monthly', period=30.5, fourier_order=5)
+
+# External regressor
+m.add_regressor('temperature')
+
+# Holidays
+from prophet.make_holidays import make_holidays_df
+holidays = make_holidays_df(year_list=[2020, 2021, 2022], country='US')
+m = Prophet(holidays=holidays)
+
+# Logistic growth
+df['cap'] = 1000
+m = Prophet(growth='logistic')
+
+# Cross-validation
+df_cv = cross_validation(m, initial='730 days', period='180 days', horizon='30 days')
+df_p = performance_metrics(df_cv)
+```
+
+-----
+
+## Resources and Further Reading
+
+### Official Documentation
+
+- Prophet Documentation: https://facebook.github.io/prophet/
+- API Reference: https://facebook.github.io/prophet/docs/
+- GitHub Repository: https://github.com/facebook/prophet
+
+### Academic Papers
+
+- Taylor, S.J., Letham, B. (2018). “Forecasting at Scale.” The American Statistician 72(1):37-45
+
+### Key Parameters Summary
+
+|Parameter              |Default   |Range                       |Description                           |
+|-----------------------|----------|----------------------------|--------------------------------------|
+|growth                 |‘linear’  |‘linear’, ‘logistic’, ‘flat’|Type of trend                         |
+|changepoints           |None      |list of dates               |Manual changepoints                   |
+|n_changepoints         |25        |int                         |Number of automatic changepoints      |
+|changepoint_range      |0.8       |0-1                         |Proportion of history for changepoints|
+|changepoint_prior_scale|0.05      |0.001-0.5                   |Flexibility of trend changes          |
+|seasonality_prior_scale|10        |0.01-10                     |Flexibility of seasonality            |
+|seasonality_mode       |‘additive’|‘additive’, ‘multiplicative’|Type of seasonality                   |
+|yearly_seasonality     |‘auto’    |True, False, int            |Yearly seasonality                    |
+|weekly_seasonality     |‘auto’    |True, False, int            |Weekly seasonality                    |
+|daily_seasonality      |‘auto’    |True, False, int            |Daily seasonality                     |
+|interval_width         |0.80      |0-1                         |Width of uncertainty intervals        |
+
+### Troubleshooting Guide
+
+**Problem:** Model too rigid (under-fitting)
+
+- ✅ Increase `changepoint_prior_scale`
+- ✅ Increase Fourier order for seasonality
+- ✅ Add more changepoints
+
+**Problem:** Model too flexible (over-fitting)
+
+- ✅ Decrease `changepoint_prior_scale`
+- ✅ Decrease Fourier order
+- ✅ Use cross-validation to tune
+
+**Problem:** Poor uncertainty intervals
+
+- ✅ Increase `uncertainty_samples`
+- ✅ Check for outliers in training data
+- ✅ Use MCMC: `mcmc_samples=300`
+
+**Problem:** Slow training
+
+- ✅ Reduce data size (aggregate if possible)
+- ✅ Decrease Fourier orders
+- ✅ Install cmdstanpy backend
+- ✅ Use parallel cross-validation
+
+**Problem:** Negative forecasts
+
+- ✅ Set floor: `df['floor'] = 0`
+- ✅ Use logistic growth with cap
+- ✅ Apply log transformation
+
+
 # Unsupervised Learning
 
 ## K-Means Clustering
