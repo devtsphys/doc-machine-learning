@@ -22,9 +22,9 @@ $$
 \hat y=\theta_0+\theta_1 x_1+\theta_2 x_2+\dots +\theta_n x_n=h_\theta(\vec x)=\vec \theta\cdot\vec x
 $$
 
-## 1. Mathematical Foundation
+1. Mathematical Foundation
 
-### Core Equation
+Core Equation
 
 ```
 y = mx + b  (simple)
@@ -41,14 +41,14 @@ where:
   β = weights/coefficients (n+1 × 1)
 ```
 
-### Cost Function (Mean Squared Error)
+Cost Function (Mean Squared Error)
 
 ```
 J(β) = (1/2m) Σ(ŷᵢ - yᵢ)²
      = (1/2m) ||Xβ - y||²
 ```
 
-### Gradient (Derivative of Cost)
+Gradient (Derivative of Cost)
 
 ```
 ∇J(β) = (1/m) Xᵀ(Xβ - y)
@@ -56,9 +56,9 @@ J(β) = (1/2m) Σ(ŷᵢ - yᵢ)²
 
 -----
 
-## 2. Implementation Approaches
+2. Implementation Approaches
 
-### Method A: Normal Equation (Closed-Form Solution)
+Method A: Normal Equation (Closed-Form Solution)
 
 **Formula:**
 
@@ -69,7 +69,7 @@ J(β) = (1/2m) Σ(ŷᵢ - yᵢ)²
 **Pros:** Direct solution, no hyperparameters  
 **Cons:** Slow for large datasets (O(n³)), requires matrix inversion
 
-### Method B: Gradient Descent (Iterative)
+Method B: Gradient Descent (Iterative)
 
 **Update Rule:**
 
@@ -85,7 +85,7 @@ where α is the learning rate
 
 -----
 
-## 3. Complete Python Implementation
+3. Complete Python Implementation
 
 ```python
 import numpy as np
@@ -262,9 +262,9 @@ class LinearRegression:
 
 -----
 
-## 4. Usage Examples
+4. Usage Examples
 
-### Example 1: Simple Linear Regression
+Example 1: Simple Linear Regression
 
 ```python
 # Generate sample data
@@ -294,7 +294,7 @@ r2 = model_gd.score(X, y)
 print(f"R² Score: {r2:.4f}")
 ```
 
-### Example 2: Multiple Linear Regression
+Example 2: Multiple Linear Regression
 
 ```python
 # Multiple features
@@ -311,7 +311,7 @@ print(f"Intercept: {model.bias}")
 print(f"R² Score: {model.score(X, y):.4f}")
 ```
 
-### Example 3: Ridge Regression (L2 Regularization)
+Example 3: Ridge Regression (L2 Regularization)
 
 ```python
 model_ridge = LinearRegression(method='gradient_descent',
@@ -324,9 +324,9 @@ model_ridge.fit(X, y)
 
 -----
 
-## 5. Key Concepts & Best Practices
+5. Key Concepts & Best Practices
 
-### Feature Scaling
+Feature Scaling
 
 Always scale features when using gradient descent:
 
@@ -337,13 +337,13 @@ scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 ```
 
-### Learning Rate Selection
+Learning Rate Selection
 
 - Too high: Cost oscillates or diverges
 - Too low: Slow convergence
 - Start with 0.01, adjust based on cost plot
 
-### Convergence Checking
+Convergence Checking
 
 ```python
 # Stop if change in cost is small
@@ -352,7 +352,7 @@ if len(model.cost_history) > 1:
         break
 ```
 
-### Train/Test Split
+Train/Test Split
 
 ```python
 # Split data 80/20
@@ -366,7 +366,7 @@ test_score = model.score(X_test, y_test)
 
 -----
 
-## 6. Common Pitfalls & Solutions
+6. Common Pitfalls & Solutions
 
 |Problem              |Cause                 |Solution                                        |
 |---------------------|----------------------|------------------------------------------------|
@@ -378,28 +378,28 @@ test_score = model.score(X_test, y_test)
 
 -----
 
-## 7. Evaluation Metrics
+7. Evaluation Metrics
 
-### R² Score (Coefficient of Determination)
+R² Score (Coefficient of Determination)
 
 ```python
 r2 = 1 - (SS_res / SS_tot)
 # Range: (-∞, 1], best = 1
 ```
 
-### Mean Squared Error (MSE)
+Mean Squared Error (MSE)
 
 ```python
 mse = np.mean((y_pred - y_true)**2)
 ```
 
-### Root Mean Squared Error (RMSE)
+Root Mean Squared Error (RMSE)
 
 ```python
 rmse = np.sqrt(mse)
 ```
 
-### Mean Absolute Error (MAE)
+Mean Absolute Error (MAE)
 
 ```python
 mae = np.mean(np.abs(y_pred - y_true))
@@ -407,9 +407,9 @@ mae = np.mean(np.abs(y_pred - y_true))
 
 -----
 
-## 8. Advanced Topics
+8. Advanced Topics
 
-### Polynomial Features
+Polynomial Features
 
 ```python
 # Transform X to include polynomial terms
@@ -417,7 +417,7 @@ X_poly = np.c_[X, X**2, X**3]
 model.fit(X_poly, y)
 ```
 
-### Batch vs Stochastic Gradient Descent
+Batch vs Stochastic Gradient Descent
 
 ```python
 # Mini-batch gradient descent
@@ -429,7 +429,7 @@ for epoch in range(n_epochs):
         # Compute gradient on batch only
 ```
 
-### Learning Rate Decay
+#Learning Rate Decay
 
 ```python
 alpha_t = alpha_0 / (1 + decay_rate * t)
