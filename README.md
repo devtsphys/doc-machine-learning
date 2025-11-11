@@ -482,18 +482,11 @@ $$
 
 ### Logistic Regression
 
-
-# Logistic Regression from Scratch - Complete Reference Guide
-
-## Overview
+Overview
 
 Logistic regression is a supervised learning algorithm for binary classification that predicts probabilities using the sigmoid function. Despite its name, it’s used for classification, not regression.
 
------
-
-## Mathematical Foundation
-
-### 1. Sigmoid Function
+1. Sigmoid Function
 
 Converts any real value to a probability between 0 and 1:
 
@@ -503,13 +496,13 @@ Converts any real value to a probability between 0 and 1:
 
 where `z = w·x + b` (linear combination of weights, features, and bias)
 
-### 2. Hypothesis Function
+2. Hypothesis Function
 
 ```
 h(x) = σ(w·x + b) = 1 / (1 + e^(-(w·x + b)))
 ```
 
-### 3. Cost Function (Binary Cross-Entropy Loss)
+3. Cost Function (Binary Cross-Entropy Loss)
 
 ```
 J(w,b) = -1/m × Σ[y^(i) × log(h(x^(i))) + (1-y^(i)) × log(1-h(x^(i)))]
@@ -521,7 +514,7 @@ where:
 - y^(i) = actual label (0 or 1)
 - h(x^(i)) = predicted probability
 
-### 4. Gradient Descent Update Rules
+4. Gradient Descent Update Rules
 
 ```
 w := w - α × ∂J/∂w
@@ -539,9 +532,9 @@ where α is the learning rate
 
 -----
 
-## Implementation Steps
+Implementation Steps
 
-### Step 1: Import Dependencies
+Step 1: Import Dependencies
 
 ```python
 import numpy as np
@@ -551,7 +544,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, confusion_matrix
 ```
 
-### Step 2: Define the Sigmoid Function
+Step 2: Define the Sigmoid Function
 
 ```python
 def sigmoid(z):
@@ -565,7 +558,7 @@ def sigmoid(z):
     return 1 / (1 + np.exp(-z))
 ```
 
-### Step 3: Initialize Parameters
+Step 3: Initialize Parameters
 
 ```python
 def initialize_parameters(n_features):
@@ -582,7 +575,7 @@ def initialize_parameters(n_features):
     return w, b
 ```
 
-### Step 4: Compute Cost and Gradients
+Step 4: Compute Cost and Gradients
 
 ```python
 def compute_cost_and_gradients(X, y, w, b):
@@ -616,7 +609,7 @@ def compute_cost_and_gradients(X, y, w, b):
     return cost, dw, db
 ```
 
-### Step 5: Gradient Descent Optimization
+Step 5: Gradient Descent Optimization
 
 ```python
 def gradient_descent(X, y, w, b, learning_rate, num_iterations):
@@ -652,7 +645,7 @@ def gradient_descent(X, y, w, b, learning_rate, num_iterations):
     return w, b, costs
 ```
 
-### Step 6: Make Predictions
+Step 6: Make Predictions
 
 ```python
 def predict(X, w, b, threshold=0.5):
@@ -672,7 +665,7 @@ def predict(X, w, b, threshold=0.5):
     return predictions
 ```
 
-### Step 7: Complete LogisticRegression Class
+Step 7: Complete LogisticRegression Class
 
 ```python
 class LogisticRegression:
@@ -743,7 +736,7 @@ class LogisticRegression:
 
 -----
 
-## Complete Usage Example
+Complete Usage Example
 
 ```python
 # Generate synthetic dataset
@@ -793,9 +786,9 @@ print(cm)
 
 -----
 
-## Key Implementation Tips
+Key Implementation Tips
 
-### 1. **Feature Scaling**
+1. **Feature Scaling**
 
 Always normalize/standardize features before training:
 
@@ -805,14 +798,14 @@ X_scaled = (X - X.mean(axis=0)) / X.std(axis=0)
 
 This ensures faster convergence and numerical stability.
 
-### 2. **Learning Rate Selection**
+2. **Learning Rate Selection**
 
 - Too high: divergence or oscillation
 - Too low: slow convergence
 - Typical values: 0.001 to 0.1
 - Use learning rate decay for better results
 
-### 3. **Avoiding Numerical Issues**
+3. **Avoiding Numerical Issues**
 
 Clip sigmoid outputs to prevent log(0):
 
@@ -820,7 +813,7 @@ Clip sigmoid outputs to prevent log(0):
 A = np.clip(A, 1e-15, 1 - 1e-15)
 ```
 
-### 4. **Vectorization**
+4. **Vectorization**
 
 Always use NumPy vectorized operations instead of loops for efficiency:
 
@@ -834,7 +827,7 @@ for i in range(m):
     z[i] = np.dot(X[i], w) + b
 ```
 
-### 5. **Regularization (L2)**
+5. **Regularization (L2)**
 
 Add penalty term to prevent overfitting:
 
@@ -848,9 +841,9 @@ dw = 1/m * np.dot(X.T, (A - y)) + (lambda_reg/m) * w
 
 -----
 
-## Common Extensions
+Common Extensions
 
-### 1. Mini-Batch Gradient Descent
+1. Mini-Batch Gradient Descent
 
 ```python
 def mini_batch_gradient_descent(X, y, w, b, learning_rate, 
@@ -880,7 +873,7 @@ def mini_batch_gradient_descent(X, y, w, b, learning_rate,
     return w, b, costs
 ```
 
-### 2. Multi-class Classification (One-vs-All)
+2. Multi-class Classification (One-vs-All)
 
 ```python
 class MulticlassLogisticRegression:
@@ -912,7 +905,7 @@ class MulticlassLogisticRegression:
 
 -----
 
-## Performance Metrics
+Performance Metrics
 
 ```python
 from sklearn.metrics import classification_report, roc_curve, auc
@@ -938,7 +931,7 @@ plt.show()
 
 -----
 
-## Comparison with scikit-learn
+Comparison with scikit-learn
 
 ```python
 from sklearn.linear_model import LogisticRegression as SklearnLR
@@ -959,7 +952,7 @@ print(f"Scikit-learn: {sklearn_accuracy:.4f}")
 
 -----
 
-## Quick Reference Summary
+Quick Reference Summary
 
 |Component   |Formula                             |Purpose               |
 |------------|------------------------------------|----------------------|
