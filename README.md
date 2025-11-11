@@ -3565,6 +3565,756 @@ The sklearn implementation includes additional optimizations and features, but t
 
 # Neural Networks and Deep Learning
 
+## Perceptron
+
+# Perceptron & Deep Learning Implementation Guide
+
+## Table of Contents
+
+1. [Perceptron Fundamentals](#perceptron-fundamentals)
+1. [Implementation from Scratch](#implementation-from-scratch)
+1. [Deep Learning Process Design](#deep-learning-process-design)
+1. [Advanced Concepts](#advanced-concepts)
+
+-----
+
+## Perceptron Fundamentals
+
+### What is a Perceptron?
+
+A perceptron is the simplest neural network unit - a binary classifier that learns a linear decision boundary.
+
+**Mathematical Model:**
+
+```
+output = activation(w₁x₁ + w₂x₂ + ... + wₙxₙ + bias)
+      = activation(w·x + b)
+```
+
+**Key Components:**
+
+- **Weights (w)**: Learn the importance of each feature
+- **Bias (b)**: Shifts the decision boundary
+- **Activation Function**: Introduces non-linearity (step, sigmoid, ReLU, etc.)
+- **Learning Rate (α)**: Controls how fast weights update
+
+-----
+
+## Implementation from Scratch
+
+### 1. Single Perceptron (Binary Classification)
+
+```python
+import numpy as np
+
+class Perceptron:
+    def __init__(self, learning_rate=0.01, n_iterations=1000):
+        """
+        Initialize perceptron
+        
+        Parameters:
+        - learning_rate: Step size for weight updates
+        - n_iterations: Number of training epochs
+        """
+        self.lr = learning_rate
+        self.n_iterations = n_iterations
+        self.weights = None
+        self.bias = None
+        self.losses = []
+    
+    def activation(self, x):
+        """Step activation function"""
+        return np.where(x >= 0, 1, 0)
+    
+    def fit(self, X, y):
+        """
+        Train the perceptron
+        
+        Parameters:
+        - X: Training data (n_samples, n_features)
+        - y: Target labels (n_samples,)
+        """
+        n_samples, n_features = X.shape
+        
+        # Initialize weights and bias
+        self.weights = np.zeros(n_features)
+        self.bias = 0
+        
+        # Training loop
+        for iteration in range(self.n_iterations):
+            epoch_loss = 0
+            
+            for idx, x_i in enumerate(X):
+                # Forward pass
+                linear_output = np.dot(x_i, self.weights) + self.bias
+                y_predicted = self.activation(linear_output)
+                
+                # Calculate error
+                error = y[idx] - y_predicted
+                epoch_loss += abs(error)
+                
+                # Update weights and bias (Perceptron Learning Rule)
+                self.weights += self.lr * error * x_i
+                self.bias += self.lr * error
+            
+            self.losses.append(epoch_loss)
+            
+            # Early stopping if converged
+            if epoch_loss == 0:
+                print(f"Converged at iteration {iteration}")
+                break
+    
+    def predict(self, X):
+        """Make predictions on new data"""
+        linear_output = np.dot(X, self.weights) + self.bias
+        return self.activation(linear_output)
+
+# Example Usage
+if __name__ == "__main__":
+    # Create simple linearly separable dataset
+    from sklearn.datasets import make_classification
+    from sklearn.model_selection import train_test_split
+    
+    X, y = make_classification(n_samples=100, n_features=2, n_redundant=0, 
+                                n_informative=2, n_clusters_per_class=1, 
+                                flip_y=0, random_state=42)
+    
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    
+    # Train perceptron
+    perceptron = Perceptron(learning_rate=0.01, n_iterations=1000)
+    perceptron.fit(X_train, y_train)
+    
+    # Evaluate
+    predictions = perceptron.predict(X_test)
+    accuracy = np.mean(predictions == y_test)
+    print(f"Accuracy: {accuracy * 100:.2f}%")
+```
+
+### 2. Multi-Layer Perceptron (Deep Learning)
+
+```python
+class NeuralNetwork:
+    def __init__(self, layer_sizes, learning_rate=0.01):
+        """
+        Initialize Multi-Layer Perceptron
+        
+        Parameters:
+        - layer_sizes: List of layer sizes [input, hidden1, hidden2, ..., output]
+        - learning_rate: Learning rate for gradient descent
+        """
+        self.lr = learning_rate
+        self.layer_sizes = layer_sizes
+        self.weights = []
+        self.biases = []
+        self.losses = []
+        
+        # Initialize weights and biases using He initialization
+        for i in range(len(layer_sizes) - 1):
+            w = np.random.randn(layer_sizes[i], layer_sizes[i+1]) * np.sqrt(2.0 / layer_sizes[i])
+            b = np.zeros((1, layer_sizes[i+1]))
+            self.weights.append(w)
+            self.biases.append(b)
+    
+    def sigmoid(self, x):
+        """Sigmoid activation function"""
+        return 1 / (1 + np.exp(-np.clip(x, -500, 500)))
+    
+    def sigmoid_derivative(self, x):
+        """Derivative of sigmoid"""
+        return x * (1 - x)
+    
+    def relu(self, x):
+        """ReLU activation function"""
+        return np.maximum(0, x)
+    
+    def relu_derivative(self, x):
+        """Derivative of ReLU"""
+        return (x > 0).astype(float)
+    
+    def forward_propagation(self, X):
+        """
+        Forward pass through the network
+        
+        Returns: List of activations for each layer
+        """
+        activations = [X]
+        
+        for i in range(len(self.weights)):
+            # Linear transformation
+            z = np.dot(activations[-1], self.weights[i]) + self.biases[i]
+            
+            # Apply activation (ReLU for hidden, sigmoid for output)
+            if i < len(self.weights) - 1:
+                a = self.relu(z)
+            else:
+                a = self.sigmoid(z)
+            
+            activations.append(a)
+        
+        return activations
+    
+    def backward_propagation(self, X, y, activations):
+        """
+        Backward pass - compute gradients
+        
+        Returns: Gradients for weights and biases
+        """
+        m = X.shape[0]
+        gradients_w = []
+        gradients_b = []
+        
+        # Output layer error
+        delta = activations[-1] - y.reshape(-1, 1)
+        
+        # Backpropagate through layers
+        for i in range(len(self.weights) - 1, -1, -1):
+            # Compute gradients
+            grad_w = np.dot(activations[i].T, delta) / m
+            grad_b = np.sum(delta, axis=0, keepdims=True) / m
+            
+            gradients_w.insert(0, grad_w)
+            gradients_b.insert(0, grad_b)
+            
+            # Propagate error to previous layer
+            if i > 0:
+                delta = np.dot(delta, self.weights[i].T)
+                delta *= self.relu_derivative(activations[i])
+        
+        return gradients_w, gradients_b
+    
+    def update_parameters(self, gradients_w, gradients_b):
+        """Update weights and biases using gradient descent"""
+        for i in range(len(self.weights)):
+            self.weights[i] -= self.lr * gradients_w[i]
+            self.biases[i] -= self.lr * gradients_b[i]
+    
+    def compute_loss(self, y_true, y_pred):
+        """Binary cross-entropy loss"""
+        m = y_true.shape[0]
+        y_pred = np.clip(y_pred, 1e-7, 1 - 1e-7)
+        loss = -np.mean(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+        return loss
+    
+    def fit(self, X, y, epochs=1000, batch_size=32, verbose=True):
+        """
+        Train the neural network
+        
+        Parameters:
+        - X: Training data
+        - y: Target labels
+        - epochs: Number of training iterations
+        - batch_size: Mini-batch size for training
+        - verbose: Print progress
+        """
+        n_samples = X.shape[0]
+        
+        for epoch in range(epochs):
+            # Shuffle data
+            indices = np.random.permutation(n_samples)
+            X_shuffled = X[indices]
+            y_shuffled = y[indices]
+            
+            epoch_loss = 0
+            
+            # Mini-batch training
+            for i in range(0, n_samples, batch_size):
+                X_batch = X_shuffled[i:i+batch_size]
+                y_batch = y_shuffled[i:i+batch_size]
+                
+                # Forward pass
+                activations = self.forward_propagation(X_batch)
+                
+                # Compute loss
+                batch_loss = self.compute_loss(y_batch, activations[-1])
+                epoch_loss += batch_loss
+                
+                # Backward pass
+                gradients_w, gradients_b = self.backward_propagation(X_batch, y_batch, activations)
+                
+                # Update parameters
+                self.update_parameters(gradients_w, gradients_b)
+            
+            # Record average loss
+            avg_loss = epoch_loss / (n_samples / batch_size)
+            self.losses.append(avg_loss)
+            
+            if verbose and (epoch + 1) % 100 == 0:
+                print(f"Epoch {epoch+1}/{epochs}, Loss: {avg_loss:.4f}")
+    
+    def predict(self, X):
+        """Make predictions"""
+        activations = self.forward_propagation(X)
+        return (activations[-1] > 0.5).astype(int)
+    
+    def predict_proba(self, X):
+        """Get probability predictions"""
+        activations = self.forward_propagation(X)
+        return activations[-1]
+
+# Example Usage
+if __name__ == "__main__":
+    from sklearn.datasets import make_moons
+    from sklearn.model_selection import train_test_split
+    
+    # Create non-linearly separable dataset
+    X, y = make_moons(n_samples=1000, noise=0.1, random_state=42)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+    
+    # Create and train neural network
+    nn = NeuralNetwork(layer_sizes=[2, 16, 8, 1], learning_rate=0.1)
+    nn.fit(X_train, y_train, epochs=500, batch_size=32)
+    
+    # Evaluate
+    predictions = nn.predict(X_test)
+    accuracy = np.mean(predictions.flatten() == y_test)
+    print(f"\nTest Accuracy: {accuracy * 100:.2f}%")
+```
+
+-----
+
+## Deep Learning Process Design
+
+### Complete ML Pipeline Workflow
+
+```python
+class MLPipeline:
+    """
+    Complete machine learning pipeline for deep learning projects
+    """
+    
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+        self.metrics = {}
+    
+    # STEP 1: Data Preparation
+    def load_and_explore_data(self, data_source):
+        """
+        Load data and perform exploratory analysis
+        """
+        import pandas as pd
+        
+        # Load data
+        if isinstance(data_source, str):
+            df = pd.read_csv(data_source)
+        else:
+            df = data_source
+        
+        print("Dataset Shape:", df.shape)
+        print("\nFirst few rows:")
+        print(df.head())
+        print("\nData types:")
+        print(df.dtypes)
+        print("\nMissing values:")
+        print(df.isnull().sum())
+        print("\nBasic statistics:")
+        print(df.describe())
+        
+        return df
+    
+    # STEP 2: Data Preprocessing
+    def preprocess_data(self, X, y=None, fit=True):
+        """
+        Preprocess features: handle missing values, scale, encode
+        """
+        from sklearn.preprocessing import StandardScaler
+        
+        # Handle missing values
+        X = np.nan_to_num(X, nan=np.nanmean(X, axis=0))
+        
+        # Feature scaling
+        if fit:
+            self.scaler = StandardScaler()
+            X_scaled = self.scaler.fit_transform(X)
+        else:
+            X_scaled = self.scaler.transform(X)
+        
+        return X_scaled, y
+    
+    # STEP 3: Feature Engineering
+    def engineer_features(self, X):
+        """
+        Create new features from existing ones
+        """
+        # Example: polynomial features, interactions, etc.
+        X_engineered = X.copy()
+        
+        # Add squared features
+        n_features = X.shape[1]
+        X_squared = X ** 2
+        X_engineered = np.hstack([X_engineered, X_squared])
+        
+        return X_engineered
+    
+    # STEP 4: Train-Validation-Test Split
+    def split_data(self, X, y, train_size=0.7, val_size=0.15, test_size=0.15):
+        """
+        Split data into train, validation, and test sets
+        """
+        from sklearn.model_selection import train_test_split
+        
+        # First split: train + (val + test)
+        X_train, X_temp, y_train, y_temp = train_test_split(
+            X, y, test_size=(1-train_size), random_state=42
+        )
+        
+        # Second split: val + test
+        val_ratio = val_size / (val_size + test_size)
+        X_val, X_test, y_val, y_test = train_test_split(
+            X_temp, y_temp, test_size=(1-val_ratio), random_state=42
+        )
+        
+        return X_train, X_val, X_test, y_train, y_val, y_test
+    
+    # STEP 5: Model Training with Validation
+    def train_model(self, X_train, y_train, X_val, y_val, 
+                   layer_sizes, learning_rate=0.01, epochs=1000):
+        """
+        Train model with validation monitoring
+        """
+        self.model = NeuralNetwork(layer_sizes, learning_rate)
+        
+        train_losses = []
+        val_losses = []
+        best_val_loss = float('inf')
+        patience = 50
+        patience_counter = 0
+        
+        for epoch in range(epochs):
+            # Train on training data
+            activations = self.model.forward_propagation(X_train)
+            train_loss = self.model.compute_loss(y_train, activations[-1])
+            gradients_w, gradients_b = self.model.backward_propagation(
+                X_train, y_train, activations
+            )
+            self.model.update_parameters(gradients_w, gradients_b)
+            
+            # Validate
+            val_activations = self.model.forward_propagation(X_val)
+            val_loss = self.model.compute_loss(y_val, val_activations[-1])
+            
+            train_losses.append(train_loss)
+            val_losses.append(val_loss)
+            
+            # Early stopping
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+            
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch}")
+                break
+            
+            if (epoch + 1) % 100 == 0:
+                print(f"Epoch {epoch+1}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}")
+        
+        return train_losses, val_losses
+    
+    # STEP 6: Model Evaluation
+    def evaluate_model(self, X_test, y_test):
+        """
+        Comprehensive model evaluation
+        """
+        predictions = self.model.predict(X_test)
+        probabilities = self.model.predict_proba(X_test)
+        
+        # Calculate metrics
+        accuracy = np.mean(predictions.flatten() == y_test)
+        
+        # Confusion matrix
+        tp = np.sum((predictions.flatten() == 1) & (y_test == 1))
+        tn = np.sum((predictions.flatten() == 0) & (y_test == 0))
+        fp = np.sum((predictions.flatten() == 1) & (y_test == 0))
+        fn = np.sum((predictions.flatten() == 0) & (y_test == 1))
+        
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+        
+        self.metrics = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1,
+            'confusion_matrix': [[tn, fp], [fn, tp]]
+        }
+        
+        print("\n=== Model Evaluation ===")
+        print(f"Accuracy: {accuracy:.4f}")
+        print(f"Precision: {precision:.4f}")
+        print(f"Recall: {recall:.4f}")
+        print(f"F1 Score: {f1:.4f}")
+        print(f"\nConfusion Matrix:")
+        print(f"TN: {tn}, FP: {fp}")
+        print(f"FN: {fn}, TP: {tp}")
+        
+        return self.metrics
+    
+    # STEP 7: Hyperparameter Tuning
+    def grid_search(self, X_train, y_train, X_val, y_val, param_grid):
+        """
+        Simple grid search for hyperparameter tuning
+        """
+        best_params = None
+        best_val_loss = float('inf')
+        results = []
+        
+        for lr in param_grid['learning_rate']:
+            for layers in param_grid['layer_sizes']:
+                print(f"\nTrying: lr={lr}, layers={layers}")
+                
+                model = NeuralNetwork(layers, lr)
+                
+                # Quick training
+                for _ in range(100):
+                    activations = model.forward_propagation(X_train)
+                    gradients_w, gradients_b = model.backward_propagation(
+                        X_train, y_train, activations
+                    )
+                    model.update_parameters(gradients_w, gradients_b)
+                
+                # Evaluate
+                val_activations = model.forward_propagation(X_val)
+                val_loss = model.compute_loss(y_val, val_activations[-1])
+                
+                results.append({
+                    'learning_rate': lr,
+                    'layer_sizes': layers,
+                    'val_loss': val_loss
+                })
+                
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    best_params = {'learning_rate': lr, 'layer_sizes': layers}
+        
+        print(f"\nBest parameters: {best_params}")
+        return best_params, results
+```
+
+-----
+
+## Advanced Concepts
+
+### 1. Activation Functions
+
+```python
+class ActivationFunctions:
+    @staticmethod
+    def sigmoid(x):
+        return 1 / (1 + np.exp(-x))
+    
+    @staticmethod
+    def tanh(x):
+        return np.tanh(x)
+    
+    @staticmethod
+    def relu(x):
+        return np.maximum(0, x)
+    
+    @staticmethod
+    def leaky_relu(x, alpha=0.01):
+        return np.where(x > 0, x, alpha * x)
+    
+    @staticmethod
+    def softmax(x):
+        exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+        return exp_x / np.sum(exp_x, axis=1, keepdims=True)
+```
+
+### 2. Regularization Techniques
+
+```python
+class Regularization:
+    @staticmethod
+    def l1_regularization(weights, lambda_param):
+        """L1 regularization (Lasso)"""
+        return lambda_param * np.sum([np.sum(np.abs(w)) for w in weights])
+    
+    @staticmethod
+    def l2_regularization(weights, lambda_param):
+        """L2 regularization (Ridge)"""
+        return lambda_param * np.sum([np.sum(w ** 2) for w in weights])
+    
+    @staticmethod
+    def dropout(x, dropout_rate=0.5, training=True):
+        """Dropout regularization"""
+        if training:
+            mask = np.random.binomial(1, 1-dropout_rate, size=x.shape) / (1-dropout_rate)
+            return x * mask
+        return x
+```
+
+### 3. Optimization Algorithms
+
+```python
+class Optimizers:
+    class SGD:
+        def __init__(self, learning_rate=0.01, momentum=0.9):
+            self.lr = learning_rate
+            self.momentum = momentum
+            self.velocity = None
+        
+        def update(self, weights, gradients):
+            if self.velocity is None:
+                self.velocity = [np.zeros_like(w) for w in weights]
+            
+            for i in range(len(weights)):
+                self.velocity[i] = self.momentum * self.velocity[i] - self.lr * gradients[i]
+                weights[i] += self.velocity[i]
+            
+            return weights
+    
+    class Adam:
+        def __init__(self, learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
+            self.lr = learning_rate
+            self.beta1 = beta1
+            self.beta2 = beta2
+            self.epsilon = epsilon
+            self.m = None
+            self.v = None
+            self.t = 0
+        
+        def update(self, weights, gradients):
+            if self.m is None:
+                self.m = [np.zeros_like(w) for w in weights]
+                self.v = [np.zeros_like(w) for w in weights]
+            
+            self.t += 1
+            
+            for i in range(len(weights)):
+                self.m[i] = self.beta1 * self.m[i] + (1 - self.beta1) * gradients[i]
+                self.v[i] = self.beta2 * self.v[i] + (1 - self.beta2) * (gradients[i] ** 2)
+                
+                m_hat = self.m[i] / (1 - self.beta1 ** self.t)
+                v_hat = self.v[i] / (1 - self.beta2 ** self.t)
+                
+                weights[i] -= self.lr * m_hat / (np.sqrt(v_hat) + self.epsilon)
+            
+            return weights
+```
+
+### 4. Batch Normalization
+
+```python
+class BatchNormalization:
+    def __init__(self, epsilon=1e-5, momentum=0.9):
+        self.epsilon = epsilon
+        self.momentum = momentum
+        self.running_mean = None
+        self.running_var = None
+        self.gamma = None
+        self.beta = None
+    
+    def forward(self, x, training=True):
+        if self.gamma is None:
+            self.gamma = np.ones(x.shape[1])
+            self.beta = np.zeros(x.shape[1])
+            self.running_mean = np.zeros(x.shape[1])
+            self.running_var = np.ones(x.shape[1])
+        
+        if training:
+            batch_mean = np.mean(x, axis=0)
+            batch_var = np.var(x, axis=0)
+            
+            # Normalize
+            x_norm = (x - batch_mean) / np.sqrt(batch_var + self.epsilon)
+            
+            # Update running statistics
+            self.running_mean = self.momentum * self.running_mean + (1 - self.momentum) * batch_mean
+            self.running_var = self.momentum * self.running_var + (1 - self.momentum) * batch_var
+        else:
+            x_norm = (x - self.running_mean) / np.sqrt(self.running_var + self.epsilon)
+        
+        # Scale and shift
+        return self.gamma * x_norm + self.beta
+```
+
+-----
+
+## Key Formulas Reference
+
+### Perceptron Learning Rule
+
+```
+Δw = α × (y_true - y_pred) × x
+Δb = α × (y_true - y_pred)
+```
+
+### Gradient Descent
+
+```
+w_new = w_old - α × ∂L/∂w
+```
+
+### Backpropagation
+
+```
+δ_L = (a_L - y) ⊙ σ'(z_L)
+δ_l = (W_{l+1}^T δ_{l+1}) ⊙ σ'(z_l)
+∂L/∂W_l = δ_l × a_{l-1}^T
+```
+
+### Common Loss Functions
+
+- **Binary Cross-Entropy**: `-[y log(ŷ) + (1-y) log(1-ŷ)]`
+- **Mean Squared Error**: `(1/n) Σ(y - ŷ)²`
+- **Categorical Cross-Entropy**: `-Σ y_i log(ŷ_i)`
+
+-----
+
+## Best Practices Checklist
+
+✅ **Data Preparation**
+
+- Handle missing values
+- Scale/normalize features
+- Split data properly (train/val/test)
+- Check for data leakage
+
+✅ **Model Design**
+
+- Start simple, increase complexity gradually
+- Use appropriate activation functions
+- Initialize weights properly (Xavier/He)
+- Add regularization if overfitting
+
+✅ **Training**
+
+- Monitor both training and validation loss
+- Use early stopping
+- Try different learning rates
+- Use mini-batch training
+
+✅ **Evaluation**
+
+- Use multiple metrics (accuracy, precision, recall, F1)
+- Analyze confusion matrix
+- Test on unseen data
+- Check for bias/fairness
+
+✅ **Optimization**
+
+- Tune hyperparameters systematically
+- Use cross-validation
+- Try different optimizers
+- Consider ensemble methods
+
+-----
+
+## Common Pitfalls to Avoid
+
+❌ Training on entire dataset without validation split
+❌ Not scaling features
+❌ Using too high learning rate (divergence)
+❌ Not monitoring for overfitting
+❌ Ignoring class imbalance
+❌ Testing on training data
+❌ Poor weight initialization
+❌ Not shuffling data between epochs
+
 # Natural Language Processing
 
 # Large Language Models
