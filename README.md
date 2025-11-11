@@ -5,6 +5,8 @@
 - [Introduction](#introduction)
 - [Supervised Learning](#supervised-learning)
 - [Training Models](#training-models)
+  - [Linear Regression](#linear-regression)
+
 
 # Introduction
 
